@@ -266,6 +266,14 @@ static double jinc(kernel *k, double x)
     return 2.0 * j1(pix) / pix;
 }
 
+static double sphinx(kernel *k, double x)
+{
+    if (fabs(x) < 1e-8)
+        return 1.0;
+    double pix = M_PI * x / k->params[0]; // blur factor
+    return 3.0 * (sin(pix) - pix*cos(pix)) / (pix * pix * pix);
+}
+
 static double lanczos(kernel *k, double x)
 {
     double radius = k->size / 2;
@@ -296,6 +304,15 @@ static double ewa_lanczos(kernel *k, double x)
     // given radius.
     double jinc_zero = 1.2196698912665045;
     return jinc(k, x) * jinc(k, x * jinc_zero / radius);
+}
+
+static double swa_lanczos(kernel *k, double x)
+{
+    double radius = k->radius;
+    if (fabs(x) >= radius)
+        return 0.0;
+    double sphinx_zero = 1.4302966531242027; // First zero, as computed by WA
+    return sphinx(k, x) * sphinx(k, x * sphinx_zero / radius);
 }
 
 static double ewa_hanning(kernel *k, double x)
@@ -340,6 +357,8 @@ const struct filter_kernel mp_filter_kernels[] = {
     {"ewa_lanczos",    -1,  ewa_lanczos, .params = {1.0, NAN}, .polar = true},
     {"ewa_hanning",    -1,  ewa_hanning, .params = {1.0, NAN}, .polar = true},
     {"ewa_ginseng",    -1,  ewa_ginseng, .params = {1.0, NAN}, .polar = true},
+    {"swa_lanczos",    -1,  swa_lanczos, .params = {1.0, NAN},
+                            .polar = true, .sphinx = true},
     // Radius is based on the true jinc radius, slightly sharpened as per
     // calculations by Nicolas Robidoux. Source: Imagemagick's magick/resize.c
     {"ewa_lanczossharp", 3.2383154841662362, ewa_lanczos,

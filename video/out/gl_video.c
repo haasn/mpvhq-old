@@ -1113,6 +1113,63 @@ static void pass_sample_polar(struct gl_video *p, struct scaler *scaler)
     GLSLF("}\n");
 }
 
+static void pass_sample_sphinx(struct gl_video *p, struct scaler *scaler)
+{
+    double radius = scaler->kernel->radius;
+    int bound = (int)ceil(radius);
+    bool use_ar = scaler->antiring > 0;
+    GLSL(vec4 color = vec4(0.0);)
+    GLSLF("{\n");
+    GLSL(vec2 pt = vec2(1.0) / sample_size;)
+    GLSL(vec3 coord = vec3(fract(sample_pos * sample_size - vec2(0.5)), fcoord);)
+    GLSL(vec2 base = sample_pos - coord.xy * pt;)
+    GLSL(vec4 c;)
+    GLSLF("float w, d, wsum = 0.0;\n");
+    if (use_ar) {
+        GLSL(vec4 lo = vec4(1.0);)
+        GLSL(vec4 hi = vec4(0.0);)
+    }
+    gl_sc_uniform_sampler(p->sc, "lut", scaler->gl_target,
+                          TEXUNIT_SCALERS + scaler->index);
+    GLSLF("// scaler samples\n");
+    for (int z = 1-bound; z <= bound; z++) {
+        for (int y = 1-bound; y <= bound; y++) {
+            for (int x = 1-bound; x <= bound; x++) {
+                // Since we can't know the subpixel position in advance, assume
+                // a worst case scenario
+                int yy = y > 0 ? y-1 : y;
+                int xx = x > 0 ? x-1 : x;
+                int zz = z > 0 ? z-1 : z;
+                double dmax = sqrt(xx*xx + yy*yy + zz*zz);
+                // Skip samples definitely outside the radius
+                if (dmax >= radius)
+                    continue;
+                GLSLF("d = length(vec3(%d, %d, %d) - coord)/%f;\n",
+                      x, y, z, radius);
+                // Check for samples that might be skippable
+                if (dmax >= radius - 1)
+                    GLSLF("if (d < 1.0) {\n");
+                GLSL(w = texture1D(lut, d).r;)
+                GLSL(wsum += w;)
+                GLSLF("c = texture(texture%d, base + pt * vec2(%d, %d));\n",
+                      z + bound - 1, x, y);
+                GLSL(color += vec4(w) * c;)
+                if (use_ar && x >= 0 && y >= 0 && z >= 0
+                           && x <= 1 && y <= 1 && z <= 0) {
+                    GLSL(lo = min(lo, c);)
+                    GLSL(hi = max(hi, c);)
+                }
+                if (dmax >= radius -1)
+                    GLSLF("}\n");
+            }
+        }
+    }
+    GLSL(color = color / vec4(wsum);)
+    if (use_ar)
+        GLSLF("color = mix(color, clamp(color, lo, hi), %f);\n", scaler->antiring);
+    GLSLF("}\n");
+}
+
 static void bicubic_calcweights(struct gl_video *p, const char *t, const char *s)
 {
     // Explanation of how bicubic scaling with only 4 texel fetches is done:
@@ -1415,11 +1472,12 @@ static void pass_convert_yuv(struct gl_video *p)
     }
 }
 
-static void get_scale_factors(struct gl_video *p, double xy[2])
+static void get_scale_factors(struct gl_video *p, struct mp_rect dst_rect,
+                              double xy[2])
 {
-    xy[0] = (p->dst_rect.x1 - p->dst_rect.x0) /
+    xy[0] = (dst_rect.x1 - dst_rect.x0) /
             (double)(p->src_rect.x1 - p->src_rect.x0);
-    xy[1] = (p->dst_rect.y1 - p->dst_rect.y0) /
+    xy[1] = (dst_rect.y1 - dst_rect.y0) /
             (double)(p->src_rect.y1 - p->src_rect.y0);
 }
 
@@ -1443,11 +1501,11 @@ static void pass_linearize(struct gl_video *p)
 }
 
 // Takes care of the main scaling and pre/post-conversions
-static void pass_scale_main(struct gl_video *p)
+static void pass_scale_main(struct gl_video *p, struct mp_rect dst_rect)
 {
     // Figure out the main scaler.
     double xy[2];
-    get_scale_factors(p, xy);
+    get_scale_factors(p, dst_rect, xy);
     bool downscaling = xy[0] < 1.0 || xy[1] < 1.0;
     bool upscaling = !downscaling && (xy[0] > 1.0 || xy[1] > 1.0);
     double scale_factor = 1.0;
@@ -1501,8 +1559,8 @@ static void pass_scale_main(struct gl_video *p)
     struct gl_transform transform = {{{sx,0.0}, {0.0,sy}}, {ox,oy}};
 
     int xc = 0, yc = 1,
-        vp_w = p->dst_rect.x1 - p->dst_rect.x0,
-        vp_h = p->dst_rect.y1 - p->dst_rect.y0;
+        vp_w = dst_rect.x1 - dst_rect.x0,
+        vp_h = dst_rect.y1 - dst_rect.y0;
 
     if ((p->image_params.rotate % 180) == 90) {
         MPSWAP(float, transform.m[0][xc], transform.m[0][yc]);
@@ -1749,17 +1807,17 @@ static void pass_draw_osd(struct gl_video *p, int draw_flags, double pts,
 
 // The main rendering function, takes care of everything up to and including
 // upscaling
-static void pass_render_frame(struct gl_video *p)
+static void pass_render_frame(struct gl_video *p, struct mp_rect dst_rect)
 {
     p->use_indirect = false; // set to true as needed by pass_*
     pass_read_video(p);
     pass_convert_yuv(p);
-    pass_scale_main(p);
+    pass_scale_main(p, dst_rect);
 
     if (p->opts.blend_subs) {
         // Recreate the real video size from the src/dst rects
-        int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
-            vp_h = p->dst_rect.y1 - p->dst_rect.y0;
+        int vp_w = dst_rect.x1 - dst_rect.x0,
+            vp_h = dst_rect.y1 - dst_rect.y0;
         struct mp_osd_res rect = {
             .w = vp_w, .h = vp_h,
             .ml = -p->src_rect.x0, .mr = p->src_rect.x1 - p->image_w,
@@ -1768,7 +1826,7 @@ static void pass_render_frame(struct gl_video *p)
         };
         // Adjust margins for scale
         double scale[2];
-        get_scale_factors(p, scale);
+        get_scale_factors(p, dst_rect, scale);
         rect.ml *= scale[0]; rect.mr *= scale[0];
         rect.mt *= scale[1]; rect.mb *= scale[1];
         finish_pass_fbo(p, &p->blend_subs_fbo, vp_w, vp_h, 0,
@@ -1792,16 +1850,22 @@ static void pass_draw_to_screen(struct gl_video *p, int fbo)
 static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
                                        struct frame_timing *t)
 {
-    int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
-        vp_h = p->dst_rect.y1 - p->dst_rect.y0,
-        fuzz = FBOTEX_FUZZY_W | FBOTEX_FUZZY_H;
+    // Initialize the interpolation filter
+    struct scaler *tscale = &p->scalers[2];
+    reinit_scaler(p, 2, p->opts.scalers[2], 1, tscale_sizes);
+    bool oversample = strcmp(tscale->name, "oversample") == 0;
+    bool sphinx = tscale->kernel && tscale->kernel->sphinx;
+    struct mp_rect dst_rect = sphinx ? p->src_rect : p->dst_rect;
 
+    int vp_w = dst_rect.x1 - dst_rect.x0,
+        vp_h = dst_rect.y1 - dst_rect.y0,
+        fuzz = sphinx ? 0 : FBOTEX_FUZZY_W | FBOTEX_FUZZY_H;
     double new_pts = p->image.mpi->pts;
 
     // First of all, figure out if we have a frame availble at all, and draw
     // it manually + reset the queue if not
     if (p->surfaces[p->surface_now].pts < 0) {
-        pass_render_frame(p);
+        pass_render_frame(p, dst_rect);
         finish_pass_fbo(p, &p->surfaces[p->surface_now].fbotex,
                         vp_w, vp_h, 0, fuzz);
         p->surfaces[p->surface_now].pts = new_pts;
@@ -1812,18 +1876,17 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
     // look like this: _ A [B] C D _
     // A is surface_bse, B is surface_now, C is surface_nxt and D is
     // surface_end.
-    struct scaler *tscale = &p->scalers[2];
-    reinit_scaler(p, 2, p->opts.scalers[2], 1, tscale_sizes);
-    bool oversample = strcmp(tscale->name, "oversample") == 0;
     int size;
     if (oversample) {
         size = 2;
+    } else if (sphinx) {
+        size = ceil(tscale->kernel->radius*2);
     } else {
         assert(tscale->kernel && !tscale->kernel->polar);
         size = ceil(tscale->kernel->size);
-        assert(size <= TEXUNIT_VIDEO_NUM);
     }
     int radius = size/2;
+    assert(size <= TEXUNIT_VIDEO_NUM);
 
     int surface_now = p->surface_now;
     int surface_nxt = fbosurface_wrap(surface_now + 1);
@@ -1835,7 +1898,7 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
     int surface_dst = fbosurface_wrap(p->surface_idx+1);
     if (surface_dst != surface_bse && p->surfaces[p->surface_idx].pts < new_pts) {
         MP_STATS(p, "new-pts");
-        pass_render_frame(p);
+        pass_render_frame(p, dst_rect);
         finish_pass_fbo(p, &p->surfaces[surface_dst].fbotex,
                         vp_w, vp_h, 0, fuzz);
         p->surfaces[surface_dst].pts = new_pts;
@@ -1875,8 +1938,15 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
     if (!t || !valid) {
         // surface_now is guaranteed to be valid, so we can safely use it.
         pass_load_fbotex(p, &p->surfaces[surface_now].fbotex, 0, vp_w, vp_h);
-        GLSL(vec4 color = texture(texture0, texcoord0);)
         p->is_interpolated = false;
+        // In sphinx mode, the interpolation code should be upscaling, so we
+        // still have to do that manually
+        if (sphinx && false) {
+            // FIXME: resample properly here
+            //pass_sample(p, 0, 0, p->opts.scaler[0], f, 
+        } else {
+            GLSL(vec4 color = texture(texture0, texcoord0);)
+        }
     } else {
         double fscale = pts_nxt - pts_now, mix;
         if (oversample) {
@@ -1892,7 +1962,13 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
         } else {
             mix = (next_vsync - pts_now) / fscale;
             gl_sc_uniform_f(p->sc, "fcoord", mix);
-            pass_sample_separated_gen(p, tscale, 0, 0);
+            if (sphinx) {
+                GLSL(#define sample_pos texcoord0)
+                GLSL(#define sample_size texture_size0)
+                pass_sample_sphinx(p, tscale);
+            } else {
+                pass_sample_separated_gen(p, tscale, 0, 0);
+            }
         }
         for (int i = 0; i < size; i++) {
             pass_load_fbotex(p, &p->surfaces[fbosurface_wrap(surface_bse+i)].fbotex,
@@ -1940,7 +2016,7 @@ void gl_video_render_frame(struct gl_video *p, int fbo, struct frame_timing *t)
         gl_video_interpolate_frame(p, fbo, t);
     } else {
         // Skip interpolation if there's nothing to be done
-        pass_render_frame(p);
+        pass_render_frame(p, p->dst_rect);
         pass_draw_to_screen(p, fbo);
     }
 
@@ -2457,7 +2533,9 @@ static const char *handle_scaler_opt(const char *name, bool tscale)
 {
     if (name && name[0]) {
         const struct filter_kernel *kernel = mp_find_filter_kernel(name);
-        if (kernel && (!tscale || !kernel->polar))
+        if (kernel && ((!tscale && !kernel->sphinx) ||
+                       (tscale && !kernel->polar) ||
+                       (tscale && kernel->sphinx)))
                 return kernel->name;
 
         for (const char *const *filter = tscale ? fixed_tscale_filters
@@ -2534,7 +2612,9 @@ static int validate_scaler_opt(struct mp_log *log, const m_option_t *opt,
             mp_info(log, "    %s\n", *filter);
         }
         for (int n = 0; mp_filter_kernels[n].name; n++) {
-            if (!tscale || !mp_filter_kernels[n].polar)
+            if ((!tscale && !mp_filter_kernels[n].sphinx)
+                    || (tscale && !mp_filter_kernels[n].polar)
+                    || (tscale && mp_filter_kernels[n].sphinx))
                 mp_info(log, "    %s\n", mp_filter_kernels[n].name);
         }
         if (s[0])
