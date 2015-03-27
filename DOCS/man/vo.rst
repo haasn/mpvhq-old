@@ -552,7 +552,7 @@ Available video output drivers are:
 
         For ``source-shader``, the signature changes to::
 
-            vec4 sample(sampler2D tex, vec2 pos, vec2 size, vec2 sub, float cmax)
+            vec4 sample(sampler2D tex, vec2 pos, vec2 size, vec2 sub, float cmul)
 
         The meanings of the parameters are as follows:
 
@@ -564,8 +564,9 @@ Available video output drivers are:
             The size of the texture, in pixels.
         vec2 sub
             The subsampling ratio for that plane (eg. (2,2) for 4:2:0 content).
-        float cmax
-            The correlated maximum color value for that plane.
+        float cmul
+            The multiplier needed to pull colors up to the right bit depth. The
+            source-shader should multiply any sampled colors by this.
 
         For example, a shader that inverts the colors could look like this::
 

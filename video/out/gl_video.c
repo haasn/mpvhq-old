@@ -213,6 +213,7 @@ struct gl_video {
     struct src_tex pass_tex[TEXUNIT_VIDEO_NUM];
     bool use_indirect;
     bool use_linear;
+    bool use_full_range;
     float user_gamma;
 
     int frames_rendered;
@@ -1406,14 +1407,16 @@ static void pass_read_video(struct gl_video *p)
     // the pixel scale
     int in_bits = p->image_desc.component_bits,
         tx_bits = (in_bits + 7) & ~7;
-    float cmax = (1 << in_bits) / (float)((1 << tx_bits) - 1);
+    float cmul =  ((1 << tx_bits) - 1) / (float)(1 << in_bits);
+    // Custom source shaders are required to output at the full range
+    p->use_full_range = use_shader;
 
     if (p->plane_count == 1) {
         if (use_shader) {
             GLSLF("// custom source-shader (RGB)\n");
             gl_sc_hadd(p->sc, p->source_shader.str);
             GLSLF("vec4 color = sample(texture0, texcoord0, texture_size0,"
-                                      "vec2(1.0), %f);\n", cmax);
+                                      "vec2(1.0), %f);\n", cmul);
         } else {
             GLSL(vec4 color = texture(texture0, texcoord0);)
         }
@@ -1448,7 +1451,7 @@ static void pass_read_video(struct gl_video *p)
         GLSLF("vec2 sub = vec2(%d, %d);\n", 1 << p->image_desc.chroma_xs,
                                             1 << p->image_desc.chroma_ys);
         GLSLF("vec4 color = sample(texture1, texcoord1, texture_size1, sub,"
-                                  "%f);\n", cmax);
+                                  "%f);\n", cmul);
         GLSL(color.ba = vec2(0.0, 1.0);) // skip unused
         finish_pass_fbo(p, &p->source_fbo, c_w, c_h, 1, 0);
         p->use_indirect = true;
@@ -1478,7 +1481,7 @@ static void pass_read_video(struct gl_video *p)
         gl_sc_hadd(p->sc, p->source_shader.str);
         GLSLF("// custom source-shader (luma)\n");
         GLSLF("float luma = sample(texture0, texcoord0, texture_size0,"
-                                  "vec2(1.0), %f).r;\n", cmax);
+                                  "vec2(1.0), %f).r;\n", cmul);
         p->use_indirect = true;
     } else {
         GLSL(float luma = texture(texture0, texcoord0).r;)
@@ -1517,6 +1520,10 @@ static void pass_convert_yuv(struct gl_video *p)
         // linear light
         GLSL(color.rgb = pow(color.rgb, vec3(2.6));)
     }
+
+    // Something already took care of expansion
+    if (p->use_full_range)
+        cparams.input_bits = cparams.texture_bits;
 
     // Conversion from Y'CbCr or other linear spaces to RGB
     if (!p->is_rgb) {
