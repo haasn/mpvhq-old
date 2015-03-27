@@ -1407,7 +1407,7 @@ static void pass_read_video(struct gl_video *p)
     // the pixel scale
     int in_bits = p->image_desc.component_bits,
         tx_bits = (in_bits + 7) & ~7;
-    float cmul =  ((1 << tx_bits) - 1) / (float)(1 << in_bits);
+    float cmul = ((1 << tx_bits) - 1.0) / ((1 << in_bits) - 1.0);
     // Custom source shaders are required to output at the full range
     p->use_full_range = use_shader;
 
