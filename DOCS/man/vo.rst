@@ -568,6 +568,12 @@ Available video output drivers are:
             The multiplier needed to pull colors up to the right bit depth. The
             source-shader should multiply any sampled colors by this.
 
+        In addition to these parameters, the following unfiforms are also
+        globally available:
+
+        float random
+            A random number in the range [0-1], different per frame.
+
         For example, a shader that inverts the colors could look like this::
 
             vec4 sample(sampler2D tex, vec2 pos, vec2 size)

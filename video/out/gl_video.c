@@ -1083,6 +1083,12 @@ static void sampler_prelude(struct gl_video *p, int tex_num)
     GLSLF("vec2 pt = vec2(1.0) / size;\n");
 }
 
+static void load_shader(struct gl_video *p, const char *body)
+{
+    gl_sc_hadd(p->sc, body);
+    gl_sc_uniform_f(p->sc, "random", drand48());
+}
+
 static void pass_sample_separated_get_weights(struct gl_video *p,
                                               struct scaler *scaler)
 {
@@ -1371,7 +1377,7 @@ static void pass_sample(struct gl_video *p, int src_tex, struct scaler *scaler,
         pass_sample_oversample(p, scaler, w, h);
     } else if (strcmp(name, "custom") == 0) {
         if (load_filestr(p, &p->scale_shader, p->opts.scale_shader)) {
-            gl_sc_hadd(p->sc, p->scale_shader.str);
+            load_shader(p, p->scale_shader.str);
             GLSLF("// custom scale-shader\n");
             GLSL(vec4 color = sample(tex, pos, size);)
         } else {
@@ -1414,7 +1420,7 @@ static void pass_read_video(struct gl_video *p)
     if (p->plane_count == 1) {
         if (use_shader) {
             GLSLF("// custom source-shader (RGB)\n");
-            gl_sc_hadd(p->sc, p->source_shader.str);
+            load_shader(p, p->source_shader.str);
             GLSLF("vec4 color = sample(texture0, texcoord0, texture_size0,"
                                       "vec2(1.0), %f);\n", cmul);
         } else {
@@ -1446,7 +1452,7 @@ static void pass_read_video(struct gl_video *p)
 
     if (use_shader) {
         // Chroma plane preprocessing
-        gl_sc_hadd(p->sc, p->source_shader.str);
+        load_shader(p, p->source_shader.str);
         GLSLF("// custom source-shader (chroma)\n");
         GLSLF("vec2 sub = vec2(%d, %d);\n", 1 << p->image_desc.chroma_xs,
                                             1 << p->image_desc.chroma_ys);
@@ -1478,7 +1484,7 @@ static void pass_read_video(struct gl_video *p)
 
     p->pass_tex[0] = luma; // Restore luma
     if (use_shader) {
-        gl_sc_hadd(p->sc, p->source_shader.str);
+        load_shader(p, p->source_shader.str);
         GLSLF("// custom source-shader (luma)\n");
         GLSLF("float luma = sample(texture0, texcoord0, texture_size0,"
                                   "vec2(1.0), %f).r;\n", cmul);
@@ -1934,7 +1940,7 @@ static void pass_render_frame(struct gl_video *p)
 
     if (load_filestr(p, &p->pre_shader, p->opts.pre_shader)) {
         finish_pass_fbo(p, &p->pre_fbo, p->image_w, p->image_h, 0, 0);
-        gl_sc_hadd(p->sc, p->pre_shader.str);
+        load_shader(p, p->pre_shader.str);
         GLSLF("// custom pre-shader\n");
         GLSL(vec4 color = sample(texture0, texcoord0, texture_size0);)
         p->use_indirect = true;
@@ -1968,7 +1974,7 @@ static void pass_render_frame(struct gl_video *p)
 
     if (load_filestr(p, &p->post_shader, p->opts.post_shader)) {
         finish_pass_fbo(p, &p->post_fbo, vp_w, vp_h, 0, 0);
-        gl_sc_hadd(p->sc, p->post_shader.str);
+        load_shader(p, p->post_shader.str);
         GLSLF("// custom post-shader\n");
         GLSL(vec4 color = sample(texture0, texcoord0, texture_size0);)
     } else {
