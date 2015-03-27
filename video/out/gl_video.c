@@ -899,13 +899,20 @@ static void uninit_scaler(struct gl_video *p, struct scaler *scaler)
     scaler->initialized = false;
 }
 
+// Semantic equality
+static bool double_seq(double a, double b)
+{
+    return (isnan(a) && isnan(b)) || a == b;
+}
+
 static bool scaler_fun_eq(struct scaler_fun a, struct scaler_fun b)
 {
     if ((a.name && !b.name) || (b.name && !a.name))
         return false;
 
     return ((!a.name && !b.name) || strcmp(a.name, b.name) == 0) &&
-           a.params[0] == b.params[0] && a.params[1] == b.params[1] &&
+           double_seq(a.params[0], b.params[0]) &&
+           double_seq(a.params[1], b.params[1]) &&
            a.blur == b.blur;
 }
 
