@@ -1402,12 +1402,18 @@ static void pass_read_video(struct gl_video *p)
     // is not worth the complexity it would require).
     bool use_shader = load_filestr(p, &p->source_shader, p->opts.source_shader);
 
+    // Since this is before normalization, we have to take into account
+    // the pixel scale
+    int in_bits = p->image_desc.component_bits,
+        tx_bits = (in_bits + 7) & ~7;
+    float cmax = (1 << in_bits) / (float)((1 << tx_bits) - 1);
+
     if (p->plane_count == 1) {
         if (use_shader) {
             GLSLF("// custom source-shader (RGB)\n");
             gl_sc_hadd(p->sc, p->source_shader.str);
-            GLSL(vec4 color = sample(texture0, texcoord0,
-                                     texture_size0, vec2(1.0));)
+            GLSLF("vec4 color = sample(texture0, texcoord0, texture_size0,"
+                                      "vec2(1.0), %f);\n", cmax);
         } else {
             GLSL(vec4 color = texture(texture0, texcoord0);)
         }
@@ -1441,7 +1447,8 @@ static void pass_read_video(struct gl_video *p)
         GLSLF("// custom source-shader (chroma)\n");
         GLSLF("vec2 sub = vec2(%d, %d);\n", 1 << p->image_desc.chroma_xs,
                                             1 << p->image_desc.chroma_ys);
-        GLSL(vec4 color = sample(texture1, texcoord1, texture_size1, sub);)
+        GLSLF("vec4 color = sample(texture1, texcoord1, texture_size1, sub,"
+                                  "%f);\n", cmax);
         GLSL(color.ba = vec2(0.0, 1.0);) // skip unused
         finish_pass_fbo(p, &p->source_fbo, c_w, c_h, 1, 0);
         p->use_indirect = true;
@@ -1470,8 +1477,8 @@ static void pass_read_video(struct gl_video *p)
     if (use_shader) {
         gl_sc_hadd(p->sc, p->source_shader.str);
         GLSLF("// custom source-shader (luma)\n");
-        GLSL(float luma = sample(texture0, texcoord0,
-                                 texture_size0, vec2(1.0)).r;)
+        GLSLF("float luma = sample(texture0, texcoord0, texture_size0,"
+                                  "vec2(1.0), %f).r;\n", cmax);
         p->use_indirect = true;
     } else {
         GLSL(float luma = texture(texture0, texcoord0).r;)
