@@ -366,6 +366,7 @@ def build(ctx):
         ( "osdep/timer.c" ),
         ( timer_c ),
         ( "osdep/threads.c" ),
+        ( "osdep/rand48.c",                      "!rand48" ),
 
         ( "osdep/ar/HIDRemote.m",                "apple-remote" ),
         ( "osdep/macosx_application.m",          "cocoa-application" ),

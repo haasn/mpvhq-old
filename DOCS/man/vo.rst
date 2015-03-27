@@ -336,6 +336,9 @@ Available video output drivers are:
             exchange for adding some blur. This filter is good at temporal
             interpolation, and also known as "smoothmotion" (see ``tscale``).
 
+        ``custom``
+            A user-defined custom shader (see ``scale-shader``).
+
         There are some more filters, but most are not as useful. For a complete
         list, pass ``help`` as value, e.g.::
 
@@ -519,6 +522,62 @@ Available video output drivers are:
         feature doesn't work correctly with different scale factors in
         different directions.
 
+    ``pre-shader=<file>``, ``post-shader=<file>``, ``scale-shader=<file>``
+        Custom GLSL fragment shaders.
+
+        source-shader
+            This gets applied directly onto the source planes, before
+            any sort of upscaling or conversion whatsoever. For YCbCr content,
+            this means it gets applied on the luma and chroma planes
+            separately.
+        pre-shader
+            This gets applied after conversion to RGB and before linearization
+            and upscaling. Operates on non-linear RGB (same as input).
+        scale-shader
+            This gets used instead of scale/cscale when those options are set
+            to ``custom``. The colorspace it operates on depends on the values
+            of ``linear-scaling`` and ``sigmoid-upscaling``.
+        post-shader
+            This gets applied after upscaling and subtitle blending (when
+            ``blend-subtitles`` is enabled), but before color management.
+            Operates on linear RGB if ``linear-scaling`` is in effect,
+            otherwise non-linear RGB.
+
+        These files must define a function with the following signature::
+
+            vec4 sample(sampler2D tex, vec2 pos, vec2 size)
+
+        The meanings of the parameters are as follows:
+
+        sampler2D tex
+            The source texture for the shader.
+        vec2 pos
+            The position to be sampled, in coordinate space [0-1].
+        vec2 size
+            The size of the texture, in pixels.
+
+        In addition to these parameters, the following uniforms are also
+        globally available:
+
+        float random
+            A random number in the range [0-1], different per frame.
+        int frame
+            A simple count of frames rendered, increases by one per frame and
+            never resets (regardless of seeks).
+        vec2 subsample (source-shader only)
+            The subsampling ratio for that plane (eg. (2,2) for 4:2:0 content).
+        float cmul (source-shader only)
+            The multiplier needed to pull colors up to the right bit depth. The
+            source-shader should multiply any sampled colors by this.
+
+        For example, a shader that inverts the colors could look like this::
+
+            vec4 sample(sampler2D tex, vec2 pos, vec2 size)
+            {
+                vec4 color = texture(tex, pos);
+                return vec4(1.0 - color.rgb, color.a);
+            }
+
     ``sigmoid-upscaling``
         When upscaling, use a sigmoidal color transform to avoid emphasizing
         ringing artifacts. This also enables ``linear-scaling``.
@@ -686,8 +745,9 @@ Available video output drivers are:
         Blend subtitles directly onto upscaled video frames, before
         interpolation and/or color management (default: no). Enabling this
         causes subtitles to be affected by ``icc-profile``, ``target-prim``,
-        ``target-trc``, ``interpolation``, ``gamma`` and ``linear-scaling``.
-        It also increases subtitle performance when using ``interpolation``.
+        ``target-trc``, ``interpolation``, ``gamma``, ``post-shader`` and
+        ``linear-scaling``. It also increases subtitle performance when using
+        ``interpolation``.
 
         The downside of enabling this is that it restricts subtitles to the
         visible portion of the video, so you can't have subtitles exist in the
