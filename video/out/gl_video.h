@@ -66,6 +66,7 @@ struct gl_video_opts {
     struct m_color background;
     int interpolation;
     int blend_subs;
+    char *source_shader;
     char *pre_shader;
     char *post_shader;
     char *scale_shader;

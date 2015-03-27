@@ -188,6 +188,7 @@ struct gl_video {
     struct video_image image;
 
     struct fbotex chroma_merge_fbo;
+    struct fbotex source_fbo;
     struct fbotex pre_fbo;
     struct fbotex indirect_fbo;
     struct fbotex blend_subs_fbo;
@@ -221,6 +222,7 @@ struct gl_video {
     float *last_dither_matrix;
 
     // Cached because it requires file I/O
+    struct filestr source_shader;
     struct filestr pre_shader;
     struct filestr post_shader;
     struct filestr scale_shader;
@@ -466,6 +468,7 @@ const struct m_sub_options gl_video_conf = {
         OPT_COLOR("background", background, 0),
         OPT_FLAG("interpolation", interpolation, 0),
         OPT_FLAG("blend-subtitles", blend_subs, 0),
+        OPT_STRING("source-shader", source_shader, 0),
         OPT_STRING("pre-shader", pre_shader, 0),
         OPT_STRING("post-shader", post_shader, 0),
         OPT_STRING("scale-shader", scale_shader, 0),
@@ -605,6 +608,7 @@ static void uninit_rendering(struct gl_video *p)
     p->dither_texture = 0;
 
     fbotex_uninit(&p->chroma_merge_fbo);
+    fbotex_uninit(&p->source_fbo);
     fbotex_uninit(&p->pre_fbo);
     fbotex_uninit(&p->indirect_fbo);
     fbotex_uninit(&p->blend_subs_fbo);
@@ -1392,51 +1396,87 @@ static void pass_read_video(struct gl_video *p)
     struct gl_transform chromafix;
     pass_set_image_textures(p, &p->image, &chromafix);
 
+    // The custom shader logic is a bit tricky, but there are basically three
+    // different places it can occur: RGB, or chroma *and* luma (which are
+    // treated separately even for 4:4:4 content, but the minor speed loss
+    // is not worth the complexity it would require).
+    bool use_shader = load_filestr(p, &p->source_shader, p->opts.source_shader);
+
     if (p->plane_count == 1) {
-        GLSL(vec4 color = texture(texture0, texcoord0);)
+        if (use_shader) {
+            GLSLF("// custom source-shader (RGB)\n");
+            gl_sc_hadd(p->sc, p->source_shader.str);
+            GLSL(vec4 color = sample(texture0, texcoord0,
+                                     texture_size0, vec2(1.0));)
+        } else {
+            GLSL(vec4 color = texture(texture0, texcoord0);)
+        }
         return;
     }
 
+    struct src_tex luma = p->pass_tex[0];
+    int c_w = p->pass_tex[1].src.x1 - p->pass_tex[1].src.x0;
+    int c_h = p->pass_tex[1].src.y1 - p->pass_tex[1].src.y0;
     const struct scaler_config *cscale = &p->opts.scaler[2];
-    if (p->image_desc.flags & MP_IMGFLAG_SUBSAMPLED &&
-            strcmp(cscale->kernel.name, "bilinear") != 0) {
-        struct src_tex luma = p->pass_tex[0];
-        if (p->plane_count > 2) {
-            // For simplicity and performance, we merge the chroma planes
-            // into a single texture before scaling, so the scaler doesn't
-            // need to run multiple times.
-            GLSLF("// chroma merging\n");
-            GLSL(vec4 color = vec4(texture(texture1, texcoord1).r,
-                                   texture(texture2, texcoord2).r,
-                                   0.0, 1.0);)
-            int c_w = p->pass_tex[1].src.x1 - p->pass_tex[1].src.x0;
-            int c_h = p->pass_tex[1].src.y1 - p->pass_tex[1].src.y0;
-            assert(c_w == p->pass_tex[2].src.x1 - p->pass_tex[2].src.x0);
-            assert(c_h == p->pass_tex[2].src.y1 - p->pass_tex[2].src.y0);
-            finish_pass_fbo(p, &p->chroma_merge_fbo, c_w, c_h, 1, 0);
-        }
+    // Non-trivial sampling is needed on the chroma plane
+    bool nontrivial = p->image_desc.flags & MP_IMGFLAG_SUBSAMPLED &&
+                      strcmp(cscale->kernel.name, "bilinear") != 0;
+
+    if (p->plane_count > 2 && (nontrivial || use_shader)) {
+        // For simplicity and performance, we merge the chroma planes
+        // into a single texture before scaling or shading, so the shader
+        // doesn't need to run multiple times.
+        GLSLF("// chroma merging\n");
+        GLSL(vec4 color = vec4(texture(texture1, texcoord1).r,
+                               texture(texture2, texcoord2).r,
+                               0.0, 1.0);)
+        assert(c_w == p->pass_tex[2].src.x1 - p->pass_tex[2].src.x0);
+        assert(c_h == p->pass_tex[2].src.y1 - p->pass_tex[2].src.y0);
+        finish_pass_fbo(p, &p->chroma_merge_fbo, c_w, c_h, 1, 0);
+    }
+
+    if (use_shader) {
+        // Chroma plane preprocessing
+        gl_sc_hadd(p->sc, p->source_shader.str);
+        GLSLF("// custom source-shader (chroma)\n");
+        GLSLF("vec2 sub = vec2(%d, %d);\n", 1 << p->image_desc.chroma_xs,
+                                            1 << p->image_desc.chroma_ys);
+        GLSL(vec4 color = sample(texture1, texcoord1, texture_size1, sub);)
+        finish_pass_fbo(p, &p->source_fbo, c_w, c_h, 1, 0);
+        p->use_indirect = true;
+    }
+
+    if (p->image_desc.flags & MP_IMGFLAG_SUBSAMPLED && nontrivial) {
         GLSLF("// chroma scaling\n");
         pass_sample(p, 1, &p->scaler[2], cscale, 1.0, p->image_w, p->image_h,
                     chromafix);
         GLSL(vec2 chroma = color.rg;)
-        // Always force rendering to a FBO before main scaling, or we would
-        // scale chroma incorrectly.
         p->use_indirect = true;
-        p->pass_tex[0] = luma; // Restore luma after scaling
     } else {
         GLSL(vec4 color;)
-        if (p->plane_count == 2) {
-            gl_transform_rect(chromafix, &p->pass_tex[1].src);
-            GLSL(vec2 chroma = texture(texture1, texcoord0).rg;) // NV formats
-        } else {
-            gl_transform_rect(chromafix, &p->pass_tex[1].src);
+        gl_transform_rect(chromafix, &p->pass_tex[1].src);
+        if (p->plane_count > 2 && !nontrivial && !use_shader) {
+            // Usually this would get merged, but this case is the exception
             gl_transform_rect(chromafix, &p->pass_tex[2].src);
             GLSL(vec2 chroma = vec2(texture(texture1, texcoord1).r,
                                     texture(texture2, texcoord2).r);)
+        } else {
+            GLSL(vec2 chroma = texture(texture1, texcoord1).rg;)
         }
     }
 
-    GLSL(color = vec4(texture(texture0, texcoord0).r, chroma, 1.0);)
+    p->pass_tex[0] = luma; // Restore luma
+    if (use_shader) {
+        gl_sc_hadd(p->sc, p->source_shader.str);
+        GLSLF("// custom source-shader (luma)\n");
+        GLSL(float luma = sample(texture0, texcoord0,
+                                 texture_size0, vec2(1.0)).r;)
+        p->use_indirect = true;
+    } else {
+        GLSL(float luma = texture(texture0, texcoord0).r;)
+    }
+
+    GLSL(color = vec4(luma, chroma, 1.0);)
     if (p->has_alpha && p->plane_count >= 4)
         GLSL(color.a = texture(texture3, texcoord3).r;)
 }
