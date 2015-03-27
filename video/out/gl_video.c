@@ -1442,6 +1442,7 @@ static void pass_read_video(struct gl_video *p)
         GLSLF("vec2 sub = vec2(%d, %d);\n", 1 << p->image_desc.chroma_xs,
                                             1 << p->image_desc.chroma_ys);
         GLSL(vec4 color = sample(texture1, texcoord1, texture_size1, sub);)
+        GLSL(color.ba = vec2(0.0, 1.0);) // skip unused
         finish_pass_fbo(p, &p->source_fbo, c_w, c_h, 1, 0);
         p->use_indirect = true;
     }
