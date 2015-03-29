@@ -550,10 +550,6 @@ Available video output drivers are:
 
             vec4 sample(sampler2D tex, vec2 pos, vec2 size)
 
-        For ``source-shader``, the signature changes to::
-
-            vec4 sample(sampler2D tex, vec2 pos, vec2 size, vec2 sub, float cmul)
-
         The meanings of the parameters are as follows:
 
         sampler2D tex
@@ -562,17 +558,17 @@ Available video output drivers are:
             The position to be sampled, in coordinate space [0-1].
         vec2 size
             The size of the texture, in pixels.
-        vec2 sub
-            The subsampling ratio for that plane (eg. (2,2) for 4:2:0 content).
-        float cmul
-            The multiplier needed to pull colors up to the right bit depth. The
-            source-shader should multiply any sampled colors by this.
 
         In addition to these parameters, the following unfiforms are also
         globally available:
 
         float random
             A random number in the range [0-1], different per frame.
+        vec2 subsample (source-shader only)
+            The subsampling ratio for that plane (eg. (2,2) for 4:2:0 content).
+        float cmul (source-shader only)
+            The multiplier needed to pull colors up to the right bit depth. The
+            source-shader should multiply any sampled colors by this.
 
         For example, a shader that inverts the colors could look like this::
 

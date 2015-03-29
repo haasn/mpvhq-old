@@ -1421,8 +1421,9 @@ static void pass_read_video(struct gl_video *p)
         if (use_shader) {
             GLSLF("// custom source-shader (RGB)\n");
             load_shader(p, p->source_shader.str);
-            GLSLF("vec4 color = sample(texture0, texcoord0, texture_size0,"
-                                      "vec2(1.0), %f);\n", cmul);
+            gl_sc_uniform_vec2(p->sc, "subsample", (GLfloat[]){1.0, 1.0});
+            gl_sc_uniform_f(p->sc, "cmul", cmul);
+            GLSL(vec4 color = sample(texture0, texcoord0, texture_size0);)
         } else {
             GLSL(vec4 color = texture(texture0, texcoord0);)
         }
@@ -1453,11 +1454,12 @@ static void pass_read_video(struct gl_video *p)
     if (use_shader) {
         // Chroma plane preprocessing
         load_shader(p, p->source_shader.str);
+        gl_sc_uniform_vec2(p->sc, "subsample",
+               (GLfloat[]){1 << p->image_desc.chroma_xs,
+                           1 << p->image_desc.chroma_ys});
+        gl_sc_uniform_f(p->sc, "cmul", cmul);
         GLSLF("// custom source-shader (chroma)\n");
-        GLSLF("vec2 sub = vec2(%d, %d);\n", 1 << p->image_desc.chroma_xs,
-                                            1 << p->image_desc.chroma_ys);
-        GLSLF("vec4 color = sample(texture1, texcoord1, texture_size1, sub,"
-                                  "%f);\n", cmul);
+        GLSL(vec4 color = sample(texture1, texcoord1, texture_size1);)
         GLSL(color.ba = vec2(0.0, 1.0);) // skip unused
         finish_pass_fbo(p, &p->source_fbo, c_w, c_h, 1, 0);
         p->use_indirect = true;
@@ -1485,9 +1487,10 @@ static void pass_read_video(struct gl_video *p)
     p->pass_tex[0] = luma; // Restore luma
     if (use_shader) {
         load_shader(p, p->source_shader.str);
+        gl_sc_uniform_vec2(p->sc, "subsample", (GLfloat[]){1.0, 1.0});
+        gl_sc_uniform_f(p->sc, "cmul", cmul);
         GLSLF("// custom source-shader (luma)\n");
-        GLSLF("float luma = sample(texture0, texcoord0, texture_size0,"
-                                  "vec2(1.0), %f).r;\n", cmul);
+        GLSL(float luma = sample(texture0, texcoord0, texture_size0);)
         p->use_indirect = true;
     } else {
         GLSL(float luma = texture(texture0, texcoord0).r;)
