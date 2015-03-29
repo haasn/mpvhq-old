@@ -15,6 +15,9 @@ Downloads
 For semi-official builds and third-party packages please see
 [mpv.io](http://mpv.io/installation/).
 
+An AUR package for this particular fork can be found
+[here](https://aur.archlinux.org/packages/mpvhq-git/).
+
 Compilation
 -----------
 
