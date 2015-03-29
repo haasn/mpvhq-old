@@ -322,6 +322,7 @@ static double sphinx(params *p, double x)
 const struct filter_window mp_filter_windows[] = {
     {"box",            1,   box},
     {"triangle",       1,   triangle},
+    {"bartlett",       1,   triangle},
     {"hanning",        1,   hanning},
     {"hamming",        1,   hamming},
     {"quadric",        1.5, quadric},
