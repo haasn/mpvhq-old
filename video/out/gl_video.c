@@ -30,6 +30,8 @@
 
 #include "gl_video.h"
 
+#include "osdep/rand48.h"
+
 #include "misc/bstr.h"
 #include "stream/stream.h"
 #include "gl_common.h"
