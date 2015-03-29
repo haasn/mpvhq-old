@@ -1428,6 +1428,7 @@ static void pass_read_video(struct gl_video *p)
             gl_sc_uniform_vec2(p->sc, "subsample", (GLfloat[]){1.0, 1.0});
             gl_sc_uniform_f(p->sc, "cmul", cmul);
             GLSL(vec4 color = sample(texture0, texcoord0, texture_size0);)
+            p->use_indirect = true;
         } else {
             GLSL(vec4 color = texture(texture0, texcoord0);)
         }
