@@ -218,6 +218,7 @@ struct gl_video {
     bool use_full_range;
     float user_gamma;
 
+    int frames_uploaded;
     int frames_rendered;
 
     // Cached because computing it can take relatively long
@@ -1089,6 +1090,7 @@ static void load_shader(struct gl_video *p, const char *body)
 {
     gl_sc_hadd(p->sc, body);
     gl_sc_uniform_f(p->sc, "random", drand48());
+    gl_sc_uniform_i(p->sc, "frame", p->frames_uploaded);
 }
 
 static void pass_sample_separated_get_weights(struct gl_video *p,
@@ -2254,6 +2256,7 @@ void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi)
     struct video_image *vimg = &p->image;
 
     p->osd_pts = mpi->pts;
+    p->frames_uploaded++;
 
     talloc_free(vimg->mpi);
     vimg->mpi = mpi;

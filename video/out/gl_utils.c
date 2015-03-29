@@ -602,6 +602,15 @@ void gl_sc_uniform_f(struct gl_shader_cache *sc, char *name, GLfloat f)
     u->v.f[0] = f;
 }
 
+void gl_sc_uniform_i(struct gl_shader_cache *sc, char *name, GLint i)
+{
+    struct sc_uniform *u = find_uniform(sc, name);
+    u->type = UT_i;
+    u->size = 1;
+    u->glsl_type = "int";
+    u->v.i[0] = i;
+}
+
 void gl_sc_uniform_vec2(struct gl_shader_cache *sc, char *name, GLfloat f[2])
 {
     struct sc_uniform *u = find_uniform(sc, name);

@@ -559,11 +559,14 @@ Available video output drivers are:
         vec2 size
             The size of the texture, in pixels.
 
-        In addition to these parameters, the following unfiforms are also
+        In addition to these parameters, the following uniforms are also
         globally available:
 
         float random
             A random number in the range [0-1], different per frame.
+        int frame
+            A simple count of frames rendered, increases by one per frame and
+            never resets (regardless of seeks).
         vec2 subsample (source-shader only)
             The subsampling ratio for that plane (eg. (2,2) for 4:2:0 content).
         float cmul (source-shader only)
