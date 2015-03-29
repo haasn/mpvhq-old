@@ -12,14 +12,16 @@ Releases can be found on the [release list][releases].
 Downloads
 ---------
 
-For semi-official builds and third-party packages please see
+For semi-official builds and third-party packages of the official mpv please see
 [mpv.io](http://mpv.io/installation/).
 
-An AUR package for this particular fork can be found
-[here](https://aur.archlinux.org/packages/mpvhq-git/).
+Packages for this particular fork are available for the following distributions:
 
-A CRUX port for this particular fork can be found 
-[here](https://github.com/6c37/crux-ports/tree/master/mpvhq).
+- [ArchLinux (AUR)](https://aur.archlinux.org/packages/mpvhq-git/).
+
+- [CRUX](https://github.com/6c37/crux-ports/tree/master/mpvhq).
+
+- [Gentoo (ebuild)](https://github.com/haasn/gentoo-overlay/blob/master/media-video/mpv/mpv-9999.ebuild)
 
 Compilation
 -----------
