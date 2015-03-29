@@ -1495,7 +1495,7 @@ static void pass_read_video(struct gl_video *p)
         gl_sc_uniform_vec2(p->sc, "subsample", (GLfloat[]){1.0, 1.0});
         gl_sc_uniform_f(p->sc, "cmul", cmul);
         GLSLF("// custom source-shader (luma)\n");
-        GLSL(float luma = sample(texture0, texcoord0, texture_size0);)
+        GLSL(float luma = sample(texture0, texcoord0, texture_size0).r;)
         p->use_indirect = true;
     } else {
         GLSL(float luma = texture(texture0, texcoord0).r;)
