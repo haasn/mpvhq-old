@@ -30,6 +30,8 @@
 
 #include "gl_video.h"
 
+#include "osdep/rand48.h"
+
 #include "misc/bstr.h"
 #include "stream/stream.h"
 #include "gl_common.h"
@@ -567,7 +569,7 @@ static bool load_filestr(struct gl_video *p, struct filestr *f, const char *path
             talloc_free((char *) f->str);
             f->str = s.start;
             f->path = path;
-            MP_VERBOSE(p, "Loaded file '%s' with length '%ld'.\n", path, s.len);
+            MP_VERBOSE(p, "Loaded file '%s' with length '%zu'.\n", path, s.len);
         } else {
             f->str = f->path = NULL;
             return false;
