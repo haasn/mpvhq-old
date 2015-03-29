@@ -1,10 +1,10 @@
-mpv
+mpvhq
 ===
 
 Overview
 --------
 
-**mpv** is a media player based on MPlayer and mplayer2. It supports a wide
+**mpvhq** is a media player based on MPlayer, mplayer2 and mpv. It supports a wide
 variety of video file formats, audio and video codecs, and subtitle types.
 
 Releases can be found on the [release list][releases].
@@ -92,7 +92,7 @@ or cross-compile from Linux with MinGW. See [Windows compilation][windows_compil
 FFmpeg vs. Libav
 ----------------
 
-Generally, mpv should work with the latest release as well as the git version
+Generally, mpvhq should work with the latest release as well as the git version
 of both FFmpeg and Libav. But FFmpeg is preferred, and some mpv features work
 with FFmpeg only. See the [wiki article][ffmpeg_vs_libav] about the issue.
 
@@ -129,7 +129,7 @@ For small changes you can just send us pull requests through GitHub. For bigger
 changes come and talk to us on IRC before you start working on them. It will
 make code review easier for both parties later on.
 
-Relation to MPlayer and mplayer2
+Relation to MPlayer, mplayer2 and mpv
 --------------------------------
 
 mpv is based on mplayer2, which in turn is based on the original MPlayer
@@ -147,6 +147,8 @@ which already started this process of removing cruft.)
 
 In general, mpv should be considered a completely new program, rather than a
 MPlayer drop-in replacement.
+
+mpvhq is based on mpv and focuses on videophile quality features and is created because of disagreements with the mpv developers.
 
 If you are wondering what's different from mplayer2 and MPlayer, an incomplete
 list of changes is located [here][mplayer-changes].
