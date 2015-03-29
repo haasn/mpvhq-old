@@ -18,6 +18,9 @@ For semi-official builds and third-party packages please see
 An AUR package for this particular fork can be found
 [here](https://aur.archlinux.org/packages/mpvhq-git/).
 
+A CRUX port for this particular fork can be found 
+[here](https://github.com/6c37/crux-ports/tree/master/mpvhq).
+
 Compilation
 -----------
 
