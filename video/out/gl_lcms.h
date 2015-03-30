@@ -6,6 +6,7 @@
 #include "misc/bstr.h"
 
 extern const struct m_sub_options mp_icc_conf;
+extern const struct mp_icc_opts gl_lcms_opts_vhq_def;
 
 struct mp_icc_opts {
     char *profile;

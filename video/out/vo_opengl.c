@@ -544,3 +544,23 @@ const struct vo_driver video_out_opengl_hq = {
     },
     .options = options,
 };
+
+const struct vo_driver video_out_opengl_vhq = {
+    .description = "Extended OpenGL Renderer (very high quality rendering preset)",
+    .name = "opengl-vhq",
+    .caps = CAPS,
+    .preinit = preinit,
+    .query_format = query_format,
+    .reconfig = reconfig,
+    .control = control,
+    .draw_image = draw_image,
+    .draw_image_timed = draw_image_timed,
+    .flip_page = flip_page,
+    .uninit = uninit,
+    .priv_size = sizeof(struct gl_priv),
+    .priv_defaults = &(const struct gl_priv){
+        .renderer_opts = (struct gl_video_opts *)&gl_video_opts_vhq_def,
+        .icc_opts = (struct mp_icc_opts *)&gl_lcms_opts_vhq_def,
+    },
+    .options = options,
+};
