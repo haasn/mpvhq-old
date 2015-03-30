@@ -2071,8 +2071,7 @@ Equalizer
 ``--colormatrix-primaries=<primaries>``
     RGB primaries the source file was encoded with. Normally this should be set
     in the file header, but when playing broken or mistagged files this can be
-    used to override the setting. By default, when unset, BT.709 is used for
-    all files except those tagged with a BT.2020 color matrix.
+    used to override the setting.
 
     This option only affects video output drivers that perform color
     management, for example ``opengl`` with the ``srgb`` or ``icc-profile``
@@ -2090,10 +2089,37 @@ Equalizer
     Available primaries are:
 
     :auto:         automatic selection (default)
+    :BT.470M:      ITU-R BT.470 M
     :BT.601-525:   ITU-R BT.601 (SD) 525-line systems (NTSC, SMPTE-C)
     :BT.601-625:   ITU-R BT.601 (SD) 625-line systems (PAL, SECAM)
     :BT.709:       ITU-R BT.709 (HD) (same primaries as sRGB)
     :BT.2020:      ITU-R BT.2020 (UHD)
+    :AppleRGB:     Apple RGB
+    :AdobeRGB:     Adobe RGB (1998)
+    :ProPhotoRGB:  ProPhoto RGB (ROMM)
+    :CIE1931:      CIE 1931 RGB
+
+``--colormatrix-gamma=<gamma>``
+    Gamma function the source file was encoded with. Normally this should be set
+    in the file header, but when playing broken or mistagged files this can be
+    used to override the setting.
+
+    This option only affects video output drivers that perform color management.
+
+    If this option is set to ``auto`` (which is the default), the gamma will
+    be set to BT.1886 for YCbCr content, sRGB for RGB content and Linear for
+    XYZ content.
+
+    Available gamma functions are:
+
+    :auto:         automatic selection (default)
+    :BT.1886:      ITU-R BT.1886 (approximation of BT.601/BT.709/BT.2020 curve)
+    :sRGB:         IEC 61966-2-4 (sRGB)
+    :Linear:       Linear light
+    :Gamma1.8:     Pure power curve (gamma 1.8)
+    :Gamma2.2:     Pure power curve (gamma 2.2)
+    :Gamma2.8:     Pure power curve (gamma 2.8)
+    :ProPhotoRGB:  ProPhoto RGB (ROMM) curve
 
 
 Demuxer

@@ -2289,6 +2289,31 @@ static int mp_property_primaries(void *ctx, struct m_property *prop,
     return M_PROPERTY_OK;
 }
 
+static int mp_property_gamma(void *ctx, struct m_property *prop,
+                                 int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    if (action != M_PROPERTY_PRINT)
+        return video_refresh_property_helper(prop, action, arg, mpctx);
+
+    struct MPOpts *opts = mpctx->opts;
+
+    struct mp_image_params vo_csp = {0};
+    if (mpctx->video_out)
+        vo_control(mpctx->video_out, VOCTRL_GET_COLORSPACE, &vo_csp);
+
+    struct mp_image_params vd_csp = {0};
+    if (mpctx->d_video)
+        vd_csp = mpctx->d_video->decoder_output;
+
+    char *res = talloc_strdup(NULL, "");
+    append_csp(&res, "*Requested", mp_csp_trc_names, opts->requested_gamma);
+    append_csp(&res, "Video decoder", mp_csp_trc_names, vd_csp.gamma);
+    append_csp(&res, "Video output", mp_csp_trc_names, vo_csp.gamma);
+    *(char **)arg = res;
+    return M_PROPERTY_OK;
+}
+
 // Update options which are managed through VOCTRL_GET/SET_PANSCAN.
 static int panscan_property_helper(void *ctx, struct m_property *prop,
                                    int action, void *arg)
@@ -3441,6 +3466,7 @@ static const struct m_property mp_properties[] = {
     {"colormatrix-input-range", mp_property_colormatrix_input_range},
     {"colormatrix-output-range", mp_property_colormatrix_output_range},
     {"colormatrix-primaries", mp_property_primaries},
+    {"colormatrix-gamma", mp_property_gamma},
     {"ontop", mp_property_ontop},
     {"border", mp_property_border},
     {"on-all-workspaces", mp_property_all_workspaces},
@@ -3740,6 +3766,8 @@ static const struct property_osd_display {
        .msg = "RGB output range:\n${colormatrix-output-range}" },
     { "colormatrix-primaries",
        .msg = "Colorspace primaries:\n${colormatrix-primaries}", },
+    { "colormatrix-gamma",
+       .msg = "Colorspace gamma:\n${colormatrix-gamma}", },
     { "gamma", "Gamma", .osd_progbar = OSD_BRIGHTNESS },
     { "brightness", "Brightness", .osd_progbar = OSD_BRIGHTNESS },
     { "contrast", "Contrast", .osd_progbar = OSD_CONTRAST },
