@@ -20,7 +20,7 @@ normal driver parameters.
 
     See ``--vo=help`` for a list of compiled-in video output drivers.
 
-    The recommended output drivers are ``--vo=vdpau`` and ``--vo=opengl-hq``.
+    The recommended output drivers are ``--vo=opengl-hq`` and ``--vo=opengl-vhq``.
     All other drivers are just for compatibility or special purposes.
 
 .. admonition:: Example
@@ -271,12 +271,12 @@ Available video output drivers are:
     .. note:: This driver is for compatibility with old systems.
 
 ``opengl``
-    OpenGL video output driver. It supports extended scaling methods, dithering
-    and color management.
+    OpenGL video output driver. It supports extended scaling methods, dithering,
+    interpolation, custom shaders and color management.
 
     By default, it tries to use fast and fail-safe settings. Use the alias
     ``opengl-hq`` to use this driver with defaults set to high quality
-    rendering.
+    rendering, and the alias ``opengl-vhq`` for very high quality defaults.
 
     Requires at least OpenGL 2.1.
 
@@ -793,6 +793,31 @@ Available video output drivers are:
     Mesa/Intel not accepting ``rgb16``, Mesa sometimes not being compiled with
     float texture support, and some OS X setups being very slow with ``rgb16``
     but fast with ``rgb32f``.
+
+``opengl-vhq``
+    Same as ``opengl-hq``, but with default settings for even higher quality
+    rendering.
+
+    This is equivalent to::
+
+        --vo=opengl-hq:scale=ewa_lanczossharp:cscale=ewa_lanczossoft:tscale=mitchell:temporal-dither:blend-subtitles:pbo:gamma-auto:target-prim=bt709:target-trc=bt1886
+
+    Note that this enables ``pbo``, which should be fine on most modern hardware
+    but can result in loss of performance or corruption on older devices, if
+    you experience any major problems you can try disabling it with ``no-pbo``.
+
+    Also, ``opengl-vhq`` is the only preset that enables color management by
+    default, configured to match a typical PC monitor by default (and more
+    importantly, to be a no-op on typical BT.709 content).
+
+    You can adjust ``target-trc`` to more closely match your monitor's response
+    curve.
+
+    The default for tscale, ``mitchell``, can introduce ghosting and afterimages
+    when ``interpolation`` is enabled. Some viewers are sensitive to this, so
+    if this is the case it's advised to switch to ``tscale=oversample`` or
+    ``tscale=nearest`` to reduce the smoothness in exchange for reducing the
+    amount of artifacts.
 
 ``sdl``
     SDL 2.0+ Render video output driver, depending on system with or without

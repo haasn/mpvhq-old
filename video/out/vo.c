@@ -53,6 +53,7 @@ extern const struct vo_driver video_out_vdpau;
 extern const struct vo_driver video_out_xv;
 extern const struct vo_driver video_out_opengl;
 extern const struct vo_driver video_out_opengl_hq;
+extern const struct vo_driver video_out_opengl_vhq;
 extern const struct vo_driver video_out_opengl_cb;
 extern const struct vo_driver video_out_null;
 extern const struct vo_driver video_out_image;
@@ -103,6 +104,7 @@ const struct vo_driver *const video_out_drivers[] =
 #endif
 #if HAVE_GL
         &video_out_opengl_hq,
+        &video_out_opengl_vhq,
         &video_out_opengl_cb,
 #endif
 #if HAVE_WAYLAND

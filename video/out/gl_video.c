@@ -374,7 +374,32 @@ const struct gl_video_opts gl_video_opts_hq_def = {
     .alpha_mode = 2,
     .background = {0, 0, 0, 255},
     .gamma = 1.0f,
-    .blend_subs = 0,
+};
+
+const struct gl_video_opts gl_video_opts_vhq_def = {
+    .npot = 1,
+    .pbo = 1,
+    .dither_depth = 0,
+    .dither_size = 6,
+    .temporal_dither = 1,
+    .fbo_format = GL_RGBA16,
+    .fancy_downscaling = 1,
+    .sigmoid_center = 0.75,
+    .sigmoid_slope = 6.5,
+    .sigmoid_upscaling = 1,
+    .scaler = {
+        {{"ewa_lanczossharp", .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // scale
+        {{"mitchell",         .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // dscale
+        {{"ewa_lanczossoft",  .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // cscale
+        {{"mitchell",         .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // tscale
+    },
+    .alpha_mode = 2,
+    .background = {0, 0, 0, 255},
+    .gamma = 1.0f,
+    .gamma_auto = 1,
+    .target_prim = MP_CSP_PRIM_BT_709,
+    .target_trc = MP_CSP_TRC_BT_1886,
+    .blend_subs = 1,
 };
 
 static int validate_scaler_opt(struct mp_log *log, const m_option_t *opt,
