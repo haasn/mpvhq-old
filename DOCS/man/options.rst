@@ -616,6 +616,15 @@ Video
 
     This option is disabled if the ``--no-keepaspect`` option is used.
 
+``--minimum-scale=<factor>``
+    Disable scaling of the video if the scaling amount is less than the option,
+    expressed as a percentage. For example, setting it to 5 would skip scaling
+    the video if it's within 5% of the destination size. This can be used to
+    avoid scaling videos if they're only a few pixels away from the display
+    size, preventing subtle discontinuities, distortions and performance loss.
+
+    This works exactly like ``--video-unscaled`` if scaling gets disabled.
+
 ``--video-pan-x=<value>``, ``--video-pan-y=<value>``
     Moves the displayed video rectangle by the given value in the X or Y
     direction. The unit is in fractions of the size of the scaled video (the

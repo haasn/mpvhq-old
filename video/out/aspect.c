@@ -17,6 +17,7 @@
  */
 
 /* Stuff for correct aspect scaling. */
+#include "math.h"
 #include "aspect.h"
 #include "vo.h"
 #include "common/msg.h"
@@ -155,11 +156,17 @@ void mp_get_src_dst_rects(struct mp_log *log, struct mp_vo_opts *opts,
         aspect_calc_panscan(log, opts, src_w, src_h, src_dw, src_dh,
                             window_w, window_h, monitor_par,
                             &scaled_width, &scaled_height);
-        src_dst_split_scaling(src_w, window_w, scaled_width, opts->unscaled,
+        // Skip scaling if the ratio is not large enough
+        float dw = fabs(1.0 - ((float)scaled_width / src_w)),
+              dh = fabs(1.0 - ((float)scaled_height / src_h));
+        bool unscaled = opts->unscaled ||
+                        100*dw < opts->minimum_scale ||
+                        100*dh < opts->minimum_scale;
+        src_dst_split_scaling(src_w, window_w, scaled_width, unscaled,
                               opts->zoom, opts->align_x, opts->pan_x,
                               &src.x0, &src.x1, &dst.x0, &dst.x1,
                               &osd.ml, &osd.mr);
-        src_dst_split_scaling(src_h, window_h, scaled_height, opts->unscaled,
+        src_dst_split_scaling(src_h, window_h, scaled_height, unscaled,
                               opts->zoom, opts->align_y, opts->pan_y,
                               &src.y0, &src.y1, &dst.y0, &dst.y1,
                               &osd.mt, &osd.mb);
