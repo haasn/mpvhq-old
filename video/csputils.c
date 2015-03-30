@@ -63,6 +63,10 @@ const char *const mp_csp_prim_names[MP_CSP_PRIM_COUNT] = {
     "BT.709 (HD)",
     "BT.2020 (UHD)",
     "BT.470 M",
+    "Apple RGB",
+    "Adobe RGB (1998)",
+    "ProPhoto RGB",
+    "CIE (1931) RGB",
 };
 
 const char *const mp_csp_trc_names[MP_CSP_TRC_COUNT] = {
@@ -70,7 +74,10 @@ const char *const mp_csp_trc_names[MP_CSP_TRC_COUNT] = {
     "BT.1886 (SD, HD, UHD)",
     "sRGB (IEC 61966-2-1)",
     "Linear light",
+    "Pure power (gamma 1.8)",
     "Pure power (gamma 2.2)",
+    "Pure power (gamma 2.8)",
+    "ProPhoto RGB (ROMM)",
 };
 
 const char *const mp_csp_equalizer_names[MP_CSP_EQ_COUNT] = {
@@ -158,6 +165,7 @@ enum mp_csp_trc avcol_trc_to_mp_csp_trc(int avtrc)
     case AVCOL_TRC_IEC61966_2_1: return MP_CSP_TRC_SRGB;
     case AVCOL_TRC_LINEAR:       return MP_CSP_TRC_LINEAR;
     case AVCOL_TRC_GAMMA22:      return MP_CSP_TRC_GAMMA22;
+    case AVCOL_TRC_GAMMA28:      return MP_CSP_TRC_GAMMA28;
     default:                     return MP_CSP_TRC_AUTO;
     }
 }
@@ -205,6 +213,7 @@ int mp_csp_trc_to_avcol_trc(enum mp_csp_trc trc)
     case MP_CSP_TRC_SRGB:        return AVCOL_TRC_IEC61966_2_1;
     case MP_CSP_TRC_LINEAR:      return AVCOL_TRC_LINEAR;
     case MP_CSP_TRC_GAMMA22:     return AVCOL_TRC_GAMMA22;
+    case MP_CSP_TRC_GAMMA28:     return AVCOL_TRC_GAMMA28;
     default:                     return AVCOL_TRC_UNSPECIFIED;
     }
 }
@@ -313,9 +322,16 @@ struct mp_csp_primaries mp_get_csp_primaries(enum mp_csp_prim spc)
     https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.601-7-201103-I!!PDF-E.pdf
     https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.709-5-200204-I!!PDF-E.pdf
     https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.2020-0-201208-I!!PDF-E.pdf
+
+    Other colorspaces from https://en.wikipedia.org/wiki/RGB_color_space#Specifications
     */
 
-    static const struct mp_csp_col_xy d65 = {0.3127, 0.3290};
+    // CIE standard illuminant series
+    static const struct mp_csp_col_xy
+        d50 = {0.34577, 0.35850},
+        d65 = {0.31271, 0.32902},
+        c   = {0.31006, 0.31616},
+        e   = {1.0/3.0, 1.0/3.0};
 
     switch (spc) {
     case MP_CSP_PRIM_BT_470M:
@@ -323,7 +339,7 @@ struct mp_csp_primaries mp_get_csp_primaries(enum mp_csp_prim spc)
             .red   = {0.670, 0.330},
             .green = {0.210, 0.710},
             .blue  = {0.140, 0.080},
-            .white = {0.310, 0.316} // Illuminant C
+            .white = c
         };
     case MP_CSP_PRIM_BT_601_525:
         return (struct mp_csp_primaries) {
@@ -355,6 +371,34 @@ struct mp_csp_primaries mp_get_csp_primaries(enum mp_csp_prim spc)
             .green = {0.170, 0.797},
             .blue  = {0.131, 0.046},
             .white = d65
+        };
+    case MP_CSP_PRIM_APPLE:
+        return (struct mp_csp_primaries) {
+            .red   = {0.625, 0.340},
+            .green = {0.280, 0.595},
+            .blue  = {0.115, 0.070},
+            .white = d65
+        };
+    case MP_CSP_PRIM_ADOBE:
+        return (struct mp_csp_primaries) {
+            .red   = {0.640, 0.330},
+            .green = {0.210, 0.710},
+            .blue  = {0.150, 0.060},
+            .white = d65
+        };
+    case MP_CSP_PRIM_PRO_PHOTO:
+        return (struct mp_csp_primaries) {
+            .red   = {0.7347, 0.2653},
+            .green = {0.1596, 0.8404},
+            .blue  = {0.0366, 0.0001},
+            .white = d50
+        };
+    case MP_CSP_PRIM_CIE_1931:
+        return (struct mp_csp_primaries) {
+            .red   = {0.7347, 0.2653},
+            .green = {0.2738, 0.7174},
+            .blue  = {0.1666, 0.0089},
+            .white = e
         };
     default:
         return (struct mp_csp_primaries) {{0}};
