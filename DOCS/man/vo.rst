@@ -815,7 +815,7 @@ Available video output drivers are:
 
     This is equivalent to::
 
-        --vo=opengl-hq:scale=ewa_lanczossharp:cscale=ewa_lanczossoft:tscale=gaussian:temporal-dither:blend-subtitles:pbo:target-prim=bt.709:target-trc=bt.1886:gamma-auto:icc-profile-auto:3dlut-size=256x256x256
+        --vo=opengl-hq:scale=ewa_lanczossharp:cscale=ewa_lanczossoft:tscale=mitchell:temporal-dither:blend-subtitles:pbo:target-prim=bt.709:target-trc=bt.1886:gamma-auto:icc-profile-auto:3dlut-size=256x256x256
 
     Note that this enables ``pbo``, which should be fine on most modern hardware
     but can result in loss of performance or corruption on older devices, if
@@ -828,12 +828,12 @@ Available video output drivers are:
     You can adjust ``target-trc`` to more closely match your monitor's response
     curve.
 
-    The default for tscale, ``gaussian``, can introduce ghosting and afterimages
-    when ``interpolation`` is enabled, and also adds quite a bit of motion blur
-    (to help smooth out the stutter). Some viewers are sensitive to this, so
-    if this is the case it's advised to switch to ``tscale=mitchell`,
-    ``tscale=oversample`` or ``tscale=nearest`` to (successively) reduce the
-    smoothness and blur in exchange for reducing the amount of artifacts.
+    The default for tscale, ``mitchell``, can introduce ghosting and afterimages
+    when ``interpolation`` is enabled, and also adds some mild motion blurring
+    (which helps smooth out the stutter). Some viewers are sensitive to this, so
+    if this is the case it's advised to switch to ``tscale=oversample`` to
+    reduce the smoothness and blur in exchange for reducing the amount of
+    artifacts.
 
 ``sdl``
     SDL 2.0+ Render video output driver, depending on system with or without

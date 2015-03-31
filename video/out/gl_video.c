@@ -391,7 +391,7 @@ const struct gl_video_opts gl_video_opts_vhq_def = {
         {{"ewa_lanczossharp", .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // scale
         {{"mitchell",         .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // dscale
         {{"ewa_lanczossoft",  .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // cscale
-        {{"gaussian",         .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // tscale
+        {{"mitchell",         .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // tscale
     },
     .alpha_mode = 2,
     .background = {0, 0, 0, 255},
