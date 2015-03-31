@@ -37,47 +37,52 @@
 
 #include "mp_image.h"
 #include "csputils.h"
+#include "options/m_option.h"
 
-const char *const mp_csp_names[MP_CSP_COUNT] = {
-    "Autoselect",
-    "BT.601 (SD)",
-    "BT.709 (HD)",
-    "SMPTE-240M",
-    "BT.2020-NCL (UHD)",
-    "BT.2020-CL (UHD)",
-    "RGB",
-    "XYZ",
-    "YCgCo",
+const struct m_opt_choice_alternatives mp_csp_names[] = {
+    {"auto",        MP_CSP_AUTO},
+    {"bt.601",      MP_CSP_BT_601},
+    {"bt.709",      MP_CSP_BT_709},
+    {"smpte-240m",  MP_CSP_SMPTE_240M},
+    {"bt.2020-ncl", MP_CSP_BT_2020_NC},
+    {"bt.2020-cl",  MP_CSP_BT_2020_C},
+    {"rgb",         MP_CSP_RGB},
+    {"xyz",         MP_CSP_XYZ},
+    {"ycgco",       MP_CSP_YCGCO},
+    {0}
 };
 
-const char *const mp_csp_levels_names[MP_CSP_LEVELS_COUNT] = {
-    "Autoselect",
-    "TV",
-    "PC",
+const struct m_opt_choice_alternatives mp_csp_levels_names[] = {
+    {"auto",        MP_CSP_LEVELS_AUTO},
+    {"limited",     MP_CSP_LEVELS_TV},
+    {"full",        MP_CSP_LEVELS_PC},
+    {0}
 };
 
-const char *const mp_csp_prim_names[MP_CSP_PRIM_COUNT] = {
-    "Autoselect",
-    "BT.601 (525-line SD)",
-    "BT.601 (625-line SD)",
-    "BT.709 (HD)",
-    "BT.2020 (UHD)",
-    "BT.470 M",
-    "Apple RGB",
-    "Adobe RGB (1998)",
-    "ProPhoto RGB",
-    "CIE (1931) RGB",
+const struct m_opt_choice_alternatives mp_csp_prim_names[] = {
+    {"auto",        MP_CSP_PRIM_AUTO},
+    {"bt.601-525",  MP_CSP_PRIM_BT_601_525},
+    {"bt.601-625",  MP_CSP_PRIM_BT_601_625},
+    {"bt.709",      MP_CSP_PRIM_BT_709},
+    {"bt.2020",     MP_CSP_PRIM_BT_2020},
+    {"bt.470m",     MP_CSP_PRIM_BT_470M},
+    {"apple",       MP_CSP_PRIM_APPLE},
+    {"adobe",       MP_CSP_PRIM_ADOBE},
+    {"prophoto",    MP_CSP_PRIM_PRO_PHOTO},
+    {"cie1931",     MP_CSP_PRIM_CIE_1931},
+    {0}
 };
 
-const char *const mp_csp_trc_names[MP_CSP_TRC_COUNT] = {
-    "Autoselect",
-    "BT.1886 (SD, HD, UHD)",
-    "sRGB (IEC 61966-2-1)",
-    "Linear light",
-    "Pure power (gamma 1.8)",
-    "Pure power (gamma 2.2)",
-    "Pure power (gamma 2.8)",
-    "ProPhoto RGB (ROMM)",
+const struct m_opt_choice_alternatives mp_csp_trc_names[] = {
+    {"auto",        MP_CSP_TRC_AUTO},
+    {"bt.1886",     MP_CSP_TRC_BT_1886},
+    {"srgb",        MP_CSP_TRC_SRGB},
+    {"linear",      MP_CSP_TRC_LINEAR},
+    {"gamma1.8",    MP_CSP_TRC_GAMMA18},
+    {"gamma2.2",    MP_CSP_TRC_GAMMA22},
+    {"gamma2.8",    MP_CSP_TRC_GAMMA28},
+    {"prophoto",    MP_CSP_TRC_PRO_PHOTO},
+    {0}
 };
 
 const char *const mp_csp_equalizer_names[MP_CSP_EQ_COUNT] = {
@@ -88,10 +93,11 @@ const char *const mp_csp_equalizer_names[MP_CSP_EQ_COUNT] = {
     "gamma",
 };
 
-const char *const mp_chroma_names[MP_CHROMA_COUNT] = {
-    "unknown",
-    "mpeg2/4/h264",
-    "mpeg1/jpeg",
+const struct m_opt_choice_alternatives mp_chroma_names[] = {
+    {"unknown",     MP_CHROMA_AUTO},
+    {"mpeg2/4/h264",MP_CHROMA_LEFT},
+    {"mpeg1/jpeg",  MP_CHROMA_CENTER},
+    {0}
 };
 
 // The short name _must_ match with what vf_stereo3d accepts (if supported).
