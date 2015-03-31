@@ -560,6 +560,7 @@ const struct vo_driver video_out_opengl_vhq = {
     .priv_size = sizeof(struct gl_priv),
     .priv_defaults = &(const struct gl_priv){
         .renderer_opts = (struct gl_video_opts *)&gl_video_opts_vhq_def,
+        .icc_opts = (struct mp_icc_opts *)&gl_lcms_opts_vhq_def,
     },
     .options = options,
 };

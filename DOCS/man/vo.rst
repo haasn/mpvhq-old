@@ -815,7 +815,7 @@ Available video output drivers are:
 
     This is equivalent to::
 
-        --vo=opengl-hq:scale=ewa_lanczossharp:cscale=ewa_lanczossoft:tscale=gaussian:temporal-dither:blend-subtitles:pbo:gamma-auto:target-prim=bt709:target-trc=bt1886
+        --vo=opengl-hq:scale=ewa_lanczossharp:cscale=ewa_lanczossoft:tscale=gaussian:temporal-dither:blend-subtitles:pbo:target-prim=bt.709:target-trc=bt.1886:gamma-auto:icc-profile-auto:3dlut-size=256x256x256
 
     Note that this enables ``pbo``, which should be fine on most modern hardware
     but can result in loss of performance or corruption on older devices, if

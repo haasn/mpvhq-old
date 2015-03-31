@@ -89,6 +89,12 @@ const struct m_sub_options mp_icc_conf = {
     },
 };
 
+const struct mp_icc_opts gl_lcms_opts_vhq_def = {
+    .size_str = "256x256x256",
+    .intent = INTENT_RELATIVE_COLORIMETRIC,
+    .profile_auto = 1,
+};
+
 static void lcms2_error_handler(cmsContext ctx, cmsUInt32Number code,
                                 const char *msg)
 {
@@ -313,6 +319,7 @@ const struct m_sub_options mp_icc_conf = {
     .defaults = &(const struct mp_icc_opts) {0},
 };
 
+const struct mp_icc_opts gl_lcms_opts_vhq_def = {0};
 
 struct gl_lcms *gl_lcms_init(void *talloc_ctx, struct mp_log *log,
                              struct mpv_global *global)
