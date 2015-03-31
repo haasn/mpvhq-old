@@ -47,7 +47,7 @@ int m_config_parse_config_file(m_config_t *config, const char *conffile,
 #define PRINT_LINENUM   MP_ERR(config, "%s:%d: ", conffile, line_num)
 #define MAX_LINE_LEN    10000
 #define MAX_OPT_LEN     1000
-#define MAX_PARAM_LEN   1500
+#define MAX_PARAM_LEN   3000
     FILE *fp = NULL;
     char *line = NULL;
     char opt[MAX_OPT_LEN + 1];
