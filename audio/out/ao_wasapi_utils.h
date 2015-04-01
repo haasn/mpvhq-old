@@ -36,12 +36,7 @@ bool wasapi_fill_VistaBlob(wasapi_state *state);
 
 const char *wasapi_explain_err(const HRESULT hr);
 
-bool wasapi_enumerate_devices(struct mp_log *log, struct ao *ao,
-                              struct ao_device_list *list);
-
-int wasapi_validate_device(struct mp_log *log, const m_option_t *opt,
-                           struct bstr name, struct bstr param);
-
+void wasapi_list_devs(struct ao *ao, struct ao_device_list *list);
 
 void wasapi_dispatch(void);
 HRESULT wasapi_thread_init(struct ao *ao);

@@ -20,6 +20,7 @@
 #include <math.h>
 #include <libavutil/common.h>
 #include <windows.h>
+#include <errors.h>
 #include <ksguid.h>
 #include <ksmedia.h>
 #include <audioclient.h>
@@ -96,12 +97,14 @@ const char *wasapi_explain_err(const HRESULT hr)
 #define E(x) case x : return # x ;
     switch (hr) {
     E(S_OK)
+    E(S_FALSE)
     E(E_FAIL)
     E(E_OUTOFMEMORY)
     E(E_POINTER)
     E(E_HANDLE)
     E(E_NOTIMPL)
     E(E_INVALIDARG)
+    E(E_PROP_ID_UNSUPPORTED)
     E(REGDB_E_IIDNOTREG)
     E(CO_E_NOTINITIALIZED)
     E(AUDCLNT_E_NOT_INITIALIZED)
@@ -309,7 +312,7 @@ static void waveformat_copy(WAVEFORMATEXTENSIBLE* dst, WAVEFORMATEX* src)
 
 static bool set_ao_format(struct ao *ao, WAVEFORMATEX *wf)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
+    struct wasapi_state *state = ao->priv;
 
     int format = format_from_waveformat(wf);
     if (!format) {
@@ -335,7 +338,7 @@ static bool set_ao_format(struct ao *ao, WAVEFORMATEX *wf)
 
 static bool try_format_exclusive(struct ao *ao, WAVEFORMATEXTENSIBLE *wformat)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
+    struct wasapi_state *state = ao->priv;
     MP_VERBOSE(ao, "Trying %s\n", waveformat_to_str(&wformat->Format));
     HRESULT hr = IAudioClient_IsFormatSupported(state->pAudioClient,
                                                 AUDCLNT_SHAREMODE_EXCLUSIVE,
@@ -421,7 +424,7 @@ static bool search_samplerates(struct ao *ao, WAVEFORMATEXTENSIBLE *wformat,
 
 static bool search_channels(struct ao *ao, WAVEFORMATEXTENSIBLE *wformat)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
+    struct wasapi_state *state = ao->priv;
     struct mp_chmap_sel chmap_sel = {.tmp = state};
     struct mp_chmap entry;
     // put common layouts first so that we find sample rate/format early
@@ -482,7 +485,7 @@ static bool find_formats_exclusive(struct ao *ao)
 
 static bool find_formats_shared(struct ao *ao)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
+    struct wasapi_state *state = ao->priv;
 
     WAVEFORMATEXTENSIBLE wformat;
     set_waveformat_with_ao(&wformat, ao);
@@ -532,7 +535,7 @@ static bool try_passthrough(struct ao *ao)
     // that the resulting waveformat is actually consistent with the ao
     // https://msdn.microsoft.com/en-us/library/windows/desktop/dd370811%28v=vs.85%29.aspx
     // https://msdn.microsoft.com/en-us/library/windows/desktop/dd316761(v=vs.85).aspx
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
+    struct wasapi_state *state = ao->priv;
 
     WAVEFORMATEXTENSIBLE wformat = {
         .Format = {
@@ -565,7 +568,7 @@ static bool try_passthrough(struct ao *ao)
 
 static bool find_formats(struct ao *ao)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
+    struct wasapi_state *state = ao->priv;
 
     if (state->opt_exclusive) {
         // https://msdn.microsoft.com/en-us/library/windows/desktop/dd370811%28v=vs.85%29.aspx
@@ -583,11 +586,9 @@ static bool find_formats(struct ao *ao)
 }
 
 static HRESULT init_clock(struct wasapi_state *state) {
-    HRESULT hr;
-
-    hr = IAudioClient_GetService(state->pAudioClient,
-                                 &IID_IAudioClock,
-                                 (void **)&state->pAudioClock);
+    HRESULT hr = IAudioClient_GetService(state->pAudioClient,
+                                         &IID_IAudioClock,
+                                         (void **)&state->pAudioClock);
     EXIT_ON_ERROR(hr);
     hr = IAudioClock_GetFrequency(state->pAudioClock, &state->clock_frequency);
     EXIT_ON_ERROR(hr);
@@ -607,12 +608,11 @@ exit_label:
 }
 
 static HRESULT init_session_display(struct wasapi_state *state) {
-    HRESULT hr;
     wchar_t path[MAX_PATH+12] = {0};
 
-    hr = IAudioClient_GetService(state->pAudioClient,
-                                 &IID_IAudioSessionControl,
-                                 (void **)&state->pSessionControl);
+    HRESULT hr = IAudioClient_GetService(state->pAudioClient,
+                                         &IID_IAudioSessionControl,
+                                         (void **)&state->pSessionControl);
     EXIT_ON_ERROR(hr);
 
     GetModuleFileNameW(NULL, path, MAX_PATH);
@@ -632,12 +632,11 @@ exit_label:
 
 static HRESULT fix_format(struct ao *ao)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
-    HRESULT hr;
+    struct wasapi_state *state = ao->priv;
 
     REFERENCE_TIME devicePeriod, bufferDuration, bufferPeriod;
     MP_DBG(state, "IAudioClient::GetDevicePeriod\n");
-    hr = IAudioClient_GetDevicePeriod(state->pAudioClient,&devicePeriod, NULL);
+    HRESULT hr = IAudioClient_GetDevicePeriod(state->pAudioClient,&devicePeriod, NULL);
     MP_VERBOSE(state, "Device period: %.2g ms\n", (double) devicePeriod / 10000.0 );
 
     /* integer multiple of device period close to 50ms */
@@ -826,94 +825,52 @@ end:
     return found;
 }
 
-// Warning: ao and list are NULL in the "--ao=wasapi:device=help" path!
-static HRESULT enumerate_with_state(struct mp_log *log, struct ao *ao,
-                                    struct ao_device_list *list,
-                                    char *header, int status, int with_id)
+void wasapi_list_devs(struct ao *ao, struct ao_device_list *list)
 {
-    HRESULT hr;
-    IMMDeviceEnumerator *pEnumerator = NULL;
+    struct wasapi_state *state = ao->priv;
     IMMDeviceCollection *pDevices = NULL;
     IMMDevice *pDevice = NULL;
-    char *defid = NULL;
+    char *name = NULL, *id = NULL;
 
-    hr = CoCreateInstance(&CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
-                          &IID_IMMDeviceEnumerator, (void **)&pEnumerator);
-    EXIT_ON_ERROR(hr);
-
-    hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(pEnumerator,
-                                                     eRender, eMultimedia,
-                                                     &pDevice);
-    EXIT_ON_ERROR(hr);
-
-    defid = get_device_id(pDevice);
-
-    SAFE_RELEASE(pDevice, IMMDevice_Release(pDevice));
-
-    hr = IMMDeviceEnumerator_EnumAudioEndpoints(pEnumerator, eRender,
-                                                status, &pDevices);
+    HRESULT hr = IMMDeviceEnumerator_EnumAudioEndpoints(state->pEnumerator, eRender,
+                                                        DEVICE_STATE_ACTIVE, &pDevices);
     EXIT_ON_ERROR(hr);
 
     int count;
-    IMMDeviceCollection_GetCount(pDevices, &count);
+    hr = IMMDeviceCollection_GetCount(pDevices, &count);
+    EXIT_ON_ERROR(hr);
     if (count > 0)
-        mp_info(log, "%s\n", header);
+        MP_VERBOSE(ao, "Output devices:\n");
 
     for (int i = 0; i < count; i++) {
         hr = IMMDeviceCollection_Item(pDevices, i, &pDevice);
         EXIT_ON_ERROR(hr);
 
-        char *name = get_device_name(pDevice);
-        char *id = get_device_id(pDevice);
-
-        char *mark = "";
-        if (strcmp(id, defid) == 0)
-            mark = " (default)";
-
-        if (with_id) {
-            mp_info(log, "Device #%d: %s, ID: %s%s\n", i, name, id, mark);
-        } else {
-            mp_info(log, "%s, ID: %s%s\n", name, id, mark);
+        name = get_device_name(pDevice);
+        id = get_device_id(pDevice);
+        if (!id) {
+            hr = E_FAIL;
+            EXIT_ON_ERROR(hr);
         }
+        char *safe_name = name ? name : "";
+        ao_device_list_add(list, ao, &(struct ao_device_desc){id, safe_name});
 
-        if (ao) {
-            char *desc = talloc_asprintf(NULL, "%s, ID: %s%s", name, id, mark);
-            struct ao_device_desc e = {id, desc};
-            ao_device_list_add(list, ao, &e);
-        }
+        MP_VERBOSE(ao, "#%d, GUID: \'%s\', name: \'%s\'\n", i, id, safe_name);
 
         talloc_free(name);
         talloc_free(id);
         SAFE_RELEASE(pDevice, IMMDevice_Release(pDevice));
     }
-    talloc_free(defid);
     SAFE_RELEASE(pDevices, IMMDeviceCollection_Release(pDevices));
-    SAFE_RELEASE(pEnumerator, IMMDeviceEnumerator_Release(pEnumerator));
 
-    return S_OK;
+    return;
 exit_label:
-    talloc_free(defid);
+    MP_ERR(ao, "Error enumerating devices: %s (0x%"PRIx32")\n",
+           wasapi_explain_err(hr), (uint32_t) hr);
+    talloc_free(name);
+    talloc_free(id);
     SAFE_RELEASE(pDevice, IMMDevice_Release(pDevice));
     SAFE_RELEASE(pDevices, IMMDeviceCollection_Release(pDevices));
-    SAFE_RELEASE(pEnumerator, IMMDeviceEnumerator_Release(pEnumerator));
-    return hr;
-}
-
-bool wasapi_enumerate_devices(struct mp_log *log, struct ao *ao,
-                             struct ao_device_list *list)
-{
-    HRESULT hr;
-    hr = enumerate_with_state(log, ao, list, "Active devices:",
-                              DEVICE_STATE_ACTIVE, 1);
-    EXIT_ON_ERROR(hr);
-    hr = enumerate_with_state(log, ao, list, "Unplugged devices:",
-                              DEVICE_STATE_UNPLUGGED, 0);
-    EXIT_ON_ERROR(hr);
-    return true;
-exit_label:
-    mp_err(log, "Error enumerating devices: %s (0x%"PRIx32")\n",
-           wasapi_explain_err(hr), (uint32_t) hr);
-    return false;
 }
 
 static HRESULT load_default_device(struct ao *ao, IMMDeviceEnumerator* pEnumerator,
@@ -944,7 +901,7 @@ static HRESULT find_and_load_device(struct ao *ao, IMMDeviceEnumerator* pEnumera
     LPWSTR deviceID = NULL;
 
     char *end;
-    int devno = (int) strtol(search, &end, 10);
+    int devno = strtol(search, &end, 10);
 
     char *devid = NULL;
     if (end == search || *end)
@@ -1043,27 +1000,6 @@ exit_label:
     return hr;
 }
 
-int wasapi_validate_device(struct mp_log *log, const m_option_t *opt,
-                           struct bstr name, struct bstr param)
-{
-    if (bstr_equals0(param, "help")) {
-        wasapi_enumerate_devices(log, NULL, NULL);
-        return M_OPT_EXIT;
-    }
-
-    mp_dbg(log, "Validating device=%s\n", param.start);
-
-    char *end;
-    int devno = (int) strtol(param.start, &end, 10);
-
-    int ret = 1;
-    if ((end == (void *)param.start || *end) && devno < 0)
-        ret = M_OPT_OUT_OF_RANGE;
-
-    mp_dbg(log, "device=%s %svalid\n", param.start, ret == 1 ? "" : "not ");
-    return ret;
-}
-
 HRESULT wasapi_setup_proxies(struct wasapi_state *state) {
     HRESULT hr;
 
@@ -1131,15 +1067,14 @@ void wasapi_dispatch(void)
 
 HRESULT wasapi_thread_init(struct ao *ao)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
-    HRESULT hr;
+    struct wasapi_state *state = ao->priv;
     MP_DBG(ao, "Init wasapi thread\n");
     int64_t retry_wait = 1;
 retry:
     state->initial_volume = -1.0;
 
-    hr = CoCreateInstance(&CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
-                          &IID_IMMDeviceEnumerator, (void **)&state->pEnumerator);
+    HRESULT hr = CoCreateInstance(&CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
+                                  &IID_IMMDeviceEnumerator, (void **)&state->pEnumerator);
     EXIT_ON_ERROR(hr);
 
     char *device = state->opt_device;
@@ -1211,7 +1146,7 @@ retry:
     }
     state->previous_volume = state->initial_volume;
 
-    wasapi_change_init(ao);
+    wasapi_change_init(ao, false);
 
     MP_DBG(ao, "Init wasapi thread done\n");
     return S_OK;
@@ -1223,7 +1158,7 @@ exit_label:
 
 void wasapi_thread_uninit(struct ao *ao)
 {
-    struct wasapi_state *state = (struct wasapi_state *)ao->priv;
+    struct wasapi_state *state = ao->priv;
 
     wasapi_dispatch();
 
