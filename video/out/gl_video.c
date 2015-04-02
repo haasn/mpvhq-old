@@ -49,7 +49,8 @@
 #define TEXUNIT_VIDEO_NUM 6
 
 // Other texture units are reserved for specific purposes
-#define TEXUNIT_SCALERS  TEXUNIT_VIDEO_NUM
+#define TEXUNIT_MVECS    TEXUNIT_VIDEO_NUM
+#define TEXUNIT_SCALERS  (TEXUNIT_MVECS+TEXUNIT_VIDEO_NUM)
 #define TEXUNIT_3DLUT    (TEXUNIT_SCALERS+4)
 #define TEXUNIT_DITHER   (TEXUNIT_3DLUT+1)
 
@@ -130,6 +131,7 @@ struct scaler {
 
 struct fbosurface {
     struct fbotex fbotex;
+    GLuint mvecs;
     int64_t pts;
     double vpts; // used for synchronizing subtitles only
 };
@@ -1135,7 +1137,9 @@ static void pass_sample_separated_gen(struct gl_video *p, struct scaler *scaler,
     bool planar = d_x == 0 && d_y == 0;
     GLSL(vec4 color = vec4(0.0);)
     GLSLF("{\n");
-    if (!planar) {
+    if (planar) {
+        GLSL(vec2 mv = vec2(texture(mvecs, texcoord0).r, 0);)
+    } else {
         GLSLF("vec2 dir = vec2(%d, %d);\n", d_x, d_y);
         GLSL(pt *= dir;)
         GLSL(float fcoord = dot(fract(pos * size - vec2(0.5)), dir);)
@@ -1150,7 +1154,8 @@ static void pass_sample_separated_gen(struct gl_video *p, struct scaler *scaler,
     GLSLF("// scaler samples\n");
     for (int n = 0; n < N; n++) {
         if (planar) {
-            GLSLF("c = texture(texture%d, texcoord%d);\n", n, n);
+            GLSLF("c = texture(texture%d, texcoord%d + "
+                  "(%d - fcoord) * mv);\n", n, n, n - N / 2 + 1);
         } else {
             GLSLF("c = texture(tex, base + pt * vec2(%d));\n", n);
         }
@@ -2033,6 +2038,80 @@ static void pass_draw_to_screen(struct gl_video *p, int fbo)
     finish_pass_direct(p, fbo, p->vp_w, p->vp_h, &p->dst_rect, flags);
 }
 
+static void pass_render_mvecs(struct gl_video *p, GLuint *gl_tex)
+{
+    GL *gl = p->gl;
+    struct mp_image *mpi = p->image.mpi;
+
+    if (mpi->vector_count == 0)
+        return;
+
+    // Figure out the smallest possible resolution for this texture
+    int resx = mpi->vectors[0].w, resy = mpi->vectors[0].h;
+    for (int i = 0; i < mpi->vector_count; i++) {
+        resx = resx < mpi->vectors[i].w ? resx : mpi->vectors[i].w;
+        resy = resy < mpi->vectors[i].h ? resy : mpi->vectors[i].h;
+    }
+
+    int w = p->image_w / resx, h = p->image_h / resy;
+    assert(w * resx == p->image_w && h * resy == p->image_h);
+
+    float *tex = talloc_zero_array(NULL, float, w * h);
+
+    for (int i = 0; i < mpi->vector_count; i++) {
+        const AVMotionVector *v = &mpi->vectors[i];
+
+        // The src coords refer to the center of the block, but we want the
+        // top left. We also need to scale down to the tex res
+        int tx = (v->dst_x - v->w/2) / resx,
+            ty = (v->dst_y - v->h/2) / resy;
+        int tw = v->w / resx, th = v->h / resy;
+
+        // Motion strength
+        float dx = (v->dst_x - v->src_x) / (float)p->image_w,
+              dy = (v->dst_y - v->src_y) / (float)p->image_h;
+
+        /*
+        printf("(%d,%d) d(%f,%f) %dx%d\n", tx, ty, dx, dy, tw, th);
+
+        printf("src: (%d,%d), dst: (%d,%d), dim: (%d,%d)\n",
+               v->src_x, v->src_y, v->dst_x, v->dst_y, v->w, v->h);
+        */
+
+        assert(tx >= 0);
+        assert(ty >= 0);
+
+        assert(tx+tw <= w);
+        assert(ty+th <= h);
+
+        // FIXME: for testing, only X dir is used. Y is ignored for now. also,
+        // mvecs from different sources just overwrite each other
+        for (int x = tx; x < tx+tw; x++)
+            for (int y = ty; y < ty+th; y++)
+                tex[y * w + x] = dx;
+    }
+
+    //printf("Block size: %dx%d, resolution: %dx%d\n", resx, resy, w, h);
+
+    gl->ActiveTexture(GL_TEXTURE0 + TEXUNIT_MVECS);
+
+    if (!(*gl_tex))
+        gl->GenTextures(1, gl_tex);
+
+    const struct fmt_entry *fmt = &gl_float16_formats[0];
+    gl->TexImage2D(GL_TEXTURE_2D, 0, fmt->internal_format, w, h, 0,
+                   fmt->format, GL_FLOAT, tex);
+
+    talloc_free(tex);
+
+    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    gl->ActiveTexture(GL_TEXTURE0);
+}
+
 // Draws an interpolate frame to fbo, based on the frame timing in t
 static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
                                        struct frame_timing *t)
@@ -2046,6 +2125,8 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
         pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[p->surface_now].fbotex,
                         vp_w, vp_h, 0, FBOTEX_FUZZY);
+        // use this texture for testing and load it right away
+        pass_render_mvecs(p, &p->surfaces[0].mvecs);
         p->surfaces[p->surface_now].pts = t ? t->pts : 0;
         p->surfaces[p->surface_now].vpts = p->image.mpi->pts;
         p->surface_idx = p->surface_now;
@@ -2082,6 +2163,8 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
         pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[surface_dst].fbotex,
                         vp_w, vp_h, 0, FBOTEX_FUZZY);
+        // testing, see above
+        pass_render_mvecs(p, &p->surfaces[0].mvecs);
         p->surfaces[surface_dst].pts = t->pts;
         p->surfaces[surface_dst].vpts = p->image.mpi->pts;
         p->surface_idx = surface_dst;
@@ -2144,6 +2227,7 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
         } else {
             mix = (t->next_vsync - pts_now) / fscale;
             gl_sc_uniform_f(p->sc, "fcoord", mix);
+            gl_sc_uniform_sampler(p->sc, "mvecs", GL_TEXTURE_2D, TEXUNIT_MVECS);
             pass_sample_separated_gen(p, tscale, 0, 0);
         }
         for (int i = 0; i < size; i++) {
@@ -2318,6 +2402,27 @@ void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi)
     if (pbo)
         gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 }
+
+/*
+static const struct gl_vao_entry mv_vao[] = {
+    {"vec_src", 2, GL_UNSIGNED_SHORT, false, offsetof(struct AVMotionVector, src_x)},
+    {"vec_dst", 2, GL_UNSIGNED_SHORT, false, offsetof(struct AVMotionVector, dst_x)},
+    {"vec_sgn", 1, GL_UNSIGNED_INT,   false, offsetof(struct AVMotionVector, source)},
+    {0}
+};
+
+void gl_video_render_mvecs(struct gl_video *p, struct mp_image *mpi, int fbo)
+{
+    p->gl->BindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLSL(vec4 color = vec4(vec_dst - vec_src, vec_sgn, 1.0);)
+    gl_sc_set_vao(p->sc, &mv_vao);
+    gl_sc_gen_shader_and_reset(p->sc);
+    gl_vao_draw_data(&mv_vao, GL_TRIANGLES, 
+
+    gl_sc_set_vao(p->sc, &p->vao);
+}
+*/
 
 static bool test_fbo(struct gl_video *p, bool *success)
 {

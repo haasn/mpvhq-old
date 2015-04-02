@@ -619,6 +619,12 @@ void mp_image_copy_fields_from_av_frame(struct mp_image *dst,
         dst->stride[i] = src->linesize[i];
     }
 
+    AVFrameSideData *sd = av_frame_get_side_data(src, AV_FRAME_DATA_MOTION_VECTORS);
+    if (sd) {
+        dst->vectors = (const AVMotionVector *)sd->data;
+        dst->vector_count = sd->size / sizeof(AVMotionVector);
+    }
+
     dst->pict_type = src->pict_type;
 
     dst->fields = MP_IMGFIELD_ORDERED;
