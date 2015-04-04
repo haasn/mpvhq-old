@@ -929,13 +929,13 @@ struct bstr stream_read_complete(struct stream *s, void *talloc_ctx,
 }
 
 struct bstr stream_read_file(const char *filename, void *talloc_ctx,
-                             struct mpv_global *global)
+                             struct mpv_global *global, int max_size)
 {
     struct bstr res = {0};
     char *fname = mp_get_user_path(NULL, global, filename);
     stream_t *s = stream_open(fname, global);
     if (s) {
-        res = stream_read_complete(s, talloc_ctx, 1000000000);
+        res = stream_read_complete(s, talloc_ctx, max_size);
         free_stream(s);
     }
     talloc_free(fname);
