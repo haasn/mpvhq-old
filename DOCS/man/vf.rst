@@ -327,6 +327,28 @@ Available filters are:
         :gamma2.8:     Pure power curve (gamma 2.8)
         :prophoto:     ProPhoto RGB (ROMM) curve
 
+    ``<stereo-in>``
+        Set the stereo mode the video is assumed to be encoded in. Takes the
+        same values as the ``--video-stereo-mode`` option.
+
+    ``<stereo-out>``
+        Set the stereo mode the video should be displayed as. Takes the
+        same values as the ``--video-stereo-mode`` option.
+
+    ``<rotate>``
+        Set the rotation the video is assumed to be encoded with in degrees.
+        The special value ``-1`` uses the input format.
+
+    ``<dw>``, ``<dh>``
+        Set the display size. Note that setting the display size such that
+        the video is scaled in both directions instead of just changing the
+        aspect ratio is an implementation detail, and might change later.
+
+    ``<dar>``
+        Set the display aspect ratio of the video frame. This is a float,
+        but values such as ``[16:9]`` can be passed too (``[...]`` for quoting
+        to prevent the option parser from interpreting the ``:`` character).
+
 
 ``noformat[=fmt]``
     Restricts the color space for the next filter without doing any conversion.
