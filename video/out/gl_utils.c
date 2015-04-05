@@ -28,6 +28,7 @@
 #include <stdarg.h>
 #include <assert.h>
 
+#include "stream/stream.h"
 #include "common/common.h"
 #include "gl_utils.h"
 
@@ -464,6 +465,7 @@ void gl_set_debug_logger(GL *gl, struct mp_log *log)
 
 #define SC_ENTRIES 16
 #define SC_UNIFORM_ENTRIES 20
+#define SC_FILE_ENTRIES 10
 
 enum uniform_type {
     UT_invalid,
@@ -484,6 +486,11 @@ struct sc_uniform {
     } v;
 };
 
+struct sc_file {
+    char *path;
+    char *body;
+};
+
 struct sc_entry {
     GLuint gl_shader;
     // the following fields define the shader's contents
@@ -494,6 +501,7 @@ struct sc_entry {
 struct gl_shader_cache {
     GL *gl;
     struct mp_log *log;
+    struct mpv_global *global;
 
     // this is modified during use (gl_sc_add() etc.)
     char *text;
@@ -505,14 +513,19 @@ struct gl_shader_cache {
 
     struct sc_uniform uniforms[SC_UNIFORM_ENTRIES];
     int num_uniforms;
+
+    struct sc_file files[SC_FILE_ENTRIES];
+    int num_files;
 };
 
-struct gl_shader_cache *gl_sc_create(GL *gl, struct mp_log *log)
+struct gl_shader_cache *gl_sc_create(GL *gl, struct mp_log *log,
+                                     struct mpv_global *global)
 {
     struct gl_shader_cache *sc = talloc_ptrtype(NULL, sc);
     *sc = (struct gl_shader_cache){
         .gl = gl,
         .log = log,
+        .global = global,
         .text = talloc_strdup(sc, ""),
         .header_text = talloc_strdup(sc, ""),
     };
@@ -561,6 +574,35 @@ void gl_sc_addf(struct gl_shader_cache *sc, const char *textf, ...)
 void gl_sc_hadd(struct gl_shader_cache *sc, const char *text)
 {
     sc->header_text = talloc_strdup_append(sc->header_text, text);
+}
+
+const char *gl_sc_loadfile(struct gl_shader_cache *sc, const char *path)
+{
+    if (!path || !path[0] || !sc->global)
+        return NULL;
+    for (int n = 0; n < sc->num_files; n++) {
+        if (strcmp(sc->files[n].path, path) == 0)
+            return sc->files[n].body;
+    }
+    // not found -> load it
+    if (sc->num_files == SC_FILE_ENTRIES) {
+        // empty cache when it overflows
+        for (int n = 0; n < sc->num_files; n++) {
+            talloc_free(sc->files[n].path);
+            talloc_free(sc->files[n].body);
+        }
+        sc->num_files = 0;
+    }
+    struct bstr s = stream_read_file(path, sc, sc->global, 100000); // 100 kB
+    if (s.len) {
+        struct sc_file *new = &sc->files[sc->num_files++];
+        *new = (struct sc_file) {
+            .path = talloc_strdup(NULL, path),
+            .body = s.start
+        };
+        return new->body;
+    }
+    return NULL;
 }
 
 static struct sc_uniform *find_uniform(struct gl_shader_cache *sc,

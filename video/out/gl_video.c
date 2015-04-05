@@ -33,7 +33,6 @@
 #include "osdep/rand48.h"
 
 #include "misc/bstr.h"
-#include "stream/stream.h"
 #include "gl_common.h"
 #include "gl_utils.h"
 #include "gl_hwdec.h"
@@ -137,12 +136,6 @@ struct fbosurface {
 
 #define FBOSURFACES_MAX 10
 
-// Represents a cached file, which is only re-read if the name changes
-struct filestr {
-    const char *path;
-    const char *str;
-};
-
 struct src_tex {
     GLuint gl_tex;
     GLenum gl_target;
@@ -191,11 +184,14 @@ struct gl_video {
 
     struct fbotex chroma_merge_fbo;
     struct fbotex source_fbo;
-    struct fbotex pre_fbo;
     struct fbotex indirect_fbo;
     struct fbotex blend_subs_fbo;
-    struct fbotex post_fbo;
     struct fbosurface surfaces[FBOSURFACES_MAX];
+
+    // these are duplicated so we can keep rendering back and forth between
+    // them to support an unlimited number of shader passes per step
+    struct fbotex pre_fbo[2];
+    struct fbotex post_fbo[2];
 
     int surface_idx;
     int surface_now;
@@ -224,12 +220,6 @@ struct gl_video {
     // Cached because computing it can take relatively long
     int last_dither_matrix_size;
     float *last_dither_matrix;
-
-    // Cached because it requires file I/O
-    struct filestr source_shader;
-    struct filestr pre_shader;
-    struct filestr post_shader;
-    struct filestr scale_shader;
 
     struct gl_hwdec *hwdec;
     bool hwdec_active;
@@ -483,9 +473,9 @@ const struct m_sub_options gl_video_conf = {
         OPT_FLAG("interpolation", interpolation, 0),
         OPT_FLAG("blend-subtitles", blend_subs, 0),
         OPT_STRING("source-shader", source_shader, 0),
-        OPT_STRING("pre-shader", pre_shader, 0),
-        OPT_STRING("post-shader", post_shader, 0),
         OPT_STRING("scale-shader", scale_shader, 0),
+        OPT_STRINGLIST("pre-shaders", pre_shaders, 0),
+        OPT_STRINGLIST("post-shaders", post_shaders, 0),
 
         OPT_REMOVED("approx-gamma", "this is always enabled now"),
         OPT_REMOVED("cscale-down", "chroma is never downscaled"),
@@ -568,28 +558,6 @@ static inline int fbosurface_wrap(int id)
     return id < 0 ? id + FBOSURFACES_MAX : id;
 }
 
-static bool load_filestr(struct gl_video *p, struct filestr *f, const char *path)
-{
-    if (!f || !path || !path[0] || !p->global)
-        return false;
-
-    if (!f->path || strcmp(f->path, path) != 0) {
-        // New file available, load it
-        struct bstr s = stream_read_file(path, p, p->global);
-        if (s.len) {
-            talloc_free((char *) f->str);
-            f->str = s.start;
-            f->path = path;
-            MP_VERBOSE(p, "Loaded file '%s' with length '%zu'.\n", path, s.len);
-        } else {
-            f->str = f->path = NULL;
-            return false;
-        }
-    }
-
-    return f->str;
-}
-
 static void recreate_osd(struct gl_video *p)
 {
     mpgl_osd_destroy(p->osd);
@@ -623,10 +591,13 @@ static void uninit_rendering(struct gl_video *p)
 
     fbotex_uninit(&p->chroma_merge_fbo);
     fbotex_uninit(&p->source_fbo);
-    fbotex_uninit(&p->pre_fbo);
     fbotex_uninit(&p->indirect_fbo);
     fbotex_uninit(&p->blend_subs_fbo);
-    fbotex_uninit(&p->post_fbo);
+
+    for (int n = 0; n < 2; n++) {
+        fbotex_uninit(&p->pre_fbo[n]);
+        fbotex_uninit(&p->post_fbo[n]);
+    }
 
     for (int n = 0; n < FBOSURFACES_MAX; n++)
         fbotex_uninit(&p->surfaces[n].fbotex);
@@ -957,6 +928,39 @@ static void uninit_scaler(struct gl_video *p, struct scaler *scaler)
     scaler->initialized = false;
 }
 
+static void load_shader(struct gl_video *p, const char *body)
+{
+    gl_sc_hadd(p->sc, body);
+    gl_sc_uniform_f(p->sc, "random", drand48());
+    gl_sc_uniform_f(p->sc, "frame", p->frames_uploaded);
+    gl_sc_uniform_vec2(p->sc, "image_size", (GLfloat[]){p->image_w, p->image_h});
+}
+
+// Applies an arbitrary number of shaders in sequence, using the given pair
+// of FBOs as intermediate buffers. Returns whether any shaders were applied.
+static bool apply_shaders(struct gl_video *p, char **shaders,
+                          struct fbotex textures[2], int tex_num,
+                          int tex_w, int tex_h)
+{
+    if (!shaders)
+        return false;
+    bool success = false;
+    int tex = 0;
+    for (int n = 0; shaders[n]; n++) {
+        const char *body = gl_sc_loadfile(p->sc, shaders[n]);
+        if (!body)
+            continue;
+        finish_pass_fbo(p, &textures[tex], tex_w, tex_h, tex_num, 0);
+        load_shader(p, body);
+        GLSLF("// custom shader\n");
+        GLSLF("vec4 color = sample(texture%d, texcoord%d, texture_size%d);\n",
+              tex_num, tex_num, tex_num);
+        tex = (tex+1) % 2;
+        success = true;
+    }
+    return success;
+}
+
 // Semantic equality
 static bool double_seq(double a, double b)
 {
@@ -1091,13 +1095,6 @@ static void sampler_prelude(struct gl_video *p, int tex_num)
     GLSLF("vec2 pos = texcoord%d;\n", tex_num);
     GLSLF("vec2 size = texture_size%d;\n", tex_num);
     GLSLF("vec2 pt = vec2(1.0) / size;\n");
-}
-
-static void load_shader(struct gl_video *p, const char *body)
-{
-    gl_sc_hadd(p->sc, body);
-    gl_sc_uniform_f(p->sc, "random", drand48());
-    gl_sc_uniform_i(p->sc, "frame", p->frames_uploaded);
 }
 
 static void pass_sample_separated_get_weights(struct gl_video *p,
@@ -1387,8 +1384,9 @@ static void pass_sample(struct gl_video *p, int src_tex, struct scaler *scaler,
     } else if (strcmp(name, "oversample") == 0) {
         pass_sample_oversample(p, scaler, w, h);
     } else if (strcmp(name, "custom") == 0) {
-        if (load_filestr(p, &p->scale_shader, p->opts.scale_shader)) {
-            load_shader(p, p->scale_shader.str);
+        const char *body = gl_sc_loadfile(p->sc, p->opts.scale_shader);
+        if (body) {
+            load_shader(p, body);
             GLSLF("// custom scale-shader\n");
             GLSL(vec4 color = sample(tex, pos, size);)
         } else {
@@ -1418,21 +1416,23 @@ static void pass_read_video(struct gl_video *p)
     // different places it can occur: RGB, or chroma *and* luma (which are
     // treated separately even for 4:4:4 content, but the minor speed loss
     // is not worth the complexity it would require).
-    bool use_shader = load_filestr(p, &p->source_shader, p->opts.source_shader);
+    const char *shader = gl_sc_loadfile(p->sc, p->opts.source_shader);
 
     // Since this is before normalization, we have to take into account
-    // the pixel scale
+    // the bit depth. Specifically, we want the shader to perform normalization
+    // to 16 bit because otherwise it results in bad quantization, especially
+    // with 8-bit FBOs (where it just destroys the image completely)
     int in_bits = p->image_desc.component_bits,
         tx_bits = (in_bits + 7) & ~7;
     float cmul = ((1 << tx_bits) - 1.0) / ((1 << in_bits) - 1.0);
     // Custom source shaders are required to output at the full range
-    p->use_full_range = use_shader;
+    p->use_full_range = shader != NULL;
 
+    // Special case for non-planar content
     if (p->plane_count == 1) {
-        if (use_shader) {
+        if (shader) {
+            load_shader(p, shader);
             GLSLF("// custom source-shader (RGB)\n");
-            load_shader(p, p->source_shader.str);
-            gl_sc_uniform_vec2(p->sc, "subsample", (GLfloat[]){1.0, 1.0});
             gl_sc_uniform_f(p->sc, "cmul", cmul);
             GLSL(vec4 color = sample(texture0, texcoord0, texture_size0);)
             p->use_indirect = true;
@@ -1442,6 +1442,7 @@ static void pass_read_video(struct gl_video *p)
         return;
     }
 
+    // Chroma preprocessing (merging -> shaders -> scaling)
     struct src_tex luma = p->pass_tex[0];
     int c_w = p->pass_tex[1].src.x1 - p->pass_tex[1].src.x0;
     int c_h = p->pass_tex[1].src.y1 - p->pass_tex[1].src.y0;
@@ -1450,7 +1451,8 @@ static void pass_read_video(struct gl_video *p)
     bool nontrivial = p->image_desc.flags & MP_IMGFLAG_SUBSAMPLED &&
                       strcmp(cscale->kernel.name, "bilinear") != 0;
 
-    if (p->plane_count > 2 && (nontrivial || use_shader)) {
+    bool merged = false;
+    if (p->plane_count > 2 && (nontrivial || shader)) {
         // For simplicity and performance, we merge the chroma planes
         // into a single texture before scaling or shading, so the shader
         // doesn't need to run multiple times.
@@ -1458,18 +1460,20 @@ static void pass_read_video(struct gl_video *p)
         GLSL(vec4 color = vec4(texture(texture1, texcoord1).r,
                                texture(texture2, texcoord2).r,
                                0.0, 1.0);)
+        // We also pull up here in this case to avoid the issues described
+        // above.
+        GLSLF("color.rg *= %f;\n", cmul);
+        p->use_full_range = true;
+        merged = true;
         assert(c_w == p->pass_tex[2].src.x1 - p->pass_tex[2].src.x0);
         assert(c_h == p->pass_tex[2].src.y1 - p->pass_tex[2].src.y0);
         finish_pass_fbo(p, &p->chroma_merge_fbo, c_w, c_h, 1, 0);
     }
 
-    if (use_shader) {
-        // Chroma plane preprocessing
-        load_shader(p, p->source_shader.str);
-        gl_sc_uniform_vec2(p->sc, "subsample",
-               (GLfloat[]){1 << p->image_desc.chroma_xs,
-                           1 << p->image_desc.chroma_ys});
-        gl_sc_uniform_f(p->sc, "cmul", cmul);
+    if (shader) {
+        // Chroma plane shader logic
+        load_shader(p, shader);
+        gl_sc_uniform_f(p->sc, "cmul", merged ? 1.0 : cmul);
         GLSLF("// custom source-shader (chroma)\n");
         GLSL(vec4 color = sample(texture1, texcoord1, texture_size1);)
         GLSL(color.ba = vec2(0.0, 1.0);) // skip unused
@@ -1484,10 +1488,13 @@ static void pass_read_video(struct gl_video *p)
         GLSL(vec2 chroma = color.rg;)
         p->use_indirect = true;
     } else {
+        // No explicit scaling needed, either because it's trivial (ie.
+        // bilinear), or because there's no subsampling. We have to manually
+        // apply the fix to the chroma coordinates because it's not implied by
+        // pass_sample.
         GLSL(vec4 color;)
         gl_transform_rect(chromafix, &p->pass_tex[1].src);
-        if (p->plane_count > 2 && !nontrivial && !use_shader) {
-            // Usually this would get merged, but this case is the exception
+        if (p->plane_count > 2 && !merged) {
             gl_transform_rect(chromafix, &p->pass_tex[2].src);
             GLSL(vec2 chroma = vec2(texture(texture1, texcoord1).r,
                                     texture(texture2, texcoord2).r);)
@@ -1496,21 +1503,25 @@ static void pass_read_video(struct gl_video *p)
         }
     }
 
-    p->pass_tex[0] = luma; // Restore luma
-    if (use_shader) {
-        load_shader(p, p->source_shader.str);
-        gl_sc_uniform_vec2(p->sc, "subsample", (GLfloat[]){1.0, 1.0});
+    p->pass_tex[0] = luma; // Restore the luma plane
+    if (shader) {
+        load_shader(p, shader);
         gl_sc_uniform_f(p->sc, "cmul", cmul);
         GLSLF("// custom source-shader (luma)\n");
         GLSL(float luma = sample(texture0, texcoord0, texture_size0).r;)
         p->use_indirect = true;
     } else {
         GLSL(float luma = texture(texture0, texcoord0).r;)
+        if (p->use_full_range)
+            GLSLF("luma *= %f;\n", cmul);
     }
 
     GLSL(color = vec4(luma, chroma, 1.0);)
-    if (p->has_alpha && p->plane_count >= 4)
+    if (p->has_alpha && p->plane_count >= 4) {
         GLSL(color.a = texture(texture3, texcoord3).r;)
+        if (p->use_full_range)
+            GLSLF("color.a *= %f;\n", cmul);
+    }
 }
 
 // yuv conversion, and any other conversions before main up/down-scaling
@@ -1969,22 +1980,13 @@ static void pass_render_frame(struct gl_video *p)
     p->use_indirect = false; // set to true as needed by pass_*
     pass_read_video(p);
     pass_convert_yuv(p);
+    if (apply_shaders(p, p->opts.pre_shaders, &p->pre_fbo[0], 0,
+                      p->image_w, p->image_h))
+        p->use_indirect = true;
+    pass_scale_main(p);
 
     int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
         vp_h = p->dst_rect.y1 - p->dst_rect.y0;
-
-    if (load_filestr(p, &p->pre_shader, p->opts.pre_shader)) {
-        finish_pass_fbo(p, &p->pre_fbo, p->image_w, p->image_h, 0, 0);
-        load_shader(p, p->pre_shader.str);
-        GLSLF("// custom pre-shader\n");
-        GLSL(vec4 color = sample(texture0, texcoord0, texture_size0);)
-        p->use_indirect = true;
-    } else {
-        p->opts.pre_shader = NULL;
-    }
-
-    pass_scale_main(p);
-
     if (p->osd && p->opts.blend_subs) {
         // Recreate the real video size from the src/dst rects
         struct mp_osd_res rect = {
@@ -2012,14 +2014,7 @@ static void pass_render_frame(struct gl_video *p)
             pass_linearize(p, p->image_params.gamma);
     }
 
-    if (load_filestr(p, &p->post_shader, p->opts.post_shader)) {
-        finish_pass_fbo(p, &p->post_fbo, vp_w, vp_h, 0, 0);
-        load_shader(p, p->post_shader.str);
-        GLSLF("// custom post-shader\n");
-        GLSL(vec4 color = sample(texture0, texcoord0, texture_size0);)
-    } else {
-        p->opts.post_shader = NULL;
-    }
+    apply_shaders(p, p->opts.post_shaders, &p->post_fbo[0], 0, vp_w, vp_h);
 }
 
 static void pass_draw_to_screen(struct gl_video *p, int fbo)
@@ -2721,7 +2716,7 @@ struct gl_video *gl_video_init(GL *gl, struct mp_log *log, struct mpv_global *g)
         .gl_target = GL_TEXTURE_2D,
         .texture_16bit_depth = 16,
         .scaler = {{.index = 0}, {.index = 1}, {.index = 2}, {.index = 3}},
-        .sc = gl_sc_create(gl, log),
+        .sc = gl_sc_create(gl, log, g),
     };
     gl_video_set_debug(p, true);
     init_gl(p);

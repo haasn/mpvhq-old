@@ -67,9 +67,9 @@ struct gl_video_opts {
     int interpolation;
     int blend_subs;
     char *source_shader;
-    char *pre_shader;
-    char *post_shader;
     char *scale_shader;
+    char **pre_shaders;
+    char **post_shaders;
 };
 
 extern const struct m_sub_options gl_video_conf;

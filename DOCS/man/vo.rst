@@ -520,30 +520,36 @@ Available video output drivers are:
         feature doesn't work correctly with different scale factors in
         different directions.
 
-    ``pre-shader=<file>``, ``post-shader=<file>``, ``scale-shader=<file>``
+    ``source-shader=<file>``, ``scale-shader=<file>``, ``pre-shaders=<files>``, ``post-shaders=<files>``
         Custom GLSL fragment shaders.
 
         source-shader
             This gets applied directly onto the source planes, before
             any sort of upscaling or conversion whatsoever. For YCbCr content,
             this means it gets applied on the luma and chroma planes
-            separately.
-        pre-shader
-            This gets applied after conversion to RGB and before linearization
-            and upscaling. Operates on non-linear RGB (same as input).
+            separately. In general, this shader shouldn't be making any
+            assumptions about the colorspace. It could be RGB, YCbCr, XYZ or
+            something else entirely. It's used purely for fixing numerical
+            quirks of the input, eg. debanding or deblocking.
+        pre-shaders (list)
+            These get applied after conversion to RGB and before linearization
+            and upscaling. Operates on non-linear RGB (same as input). This is
+            the best place to put things like sharpen filters.
         scale-shader
             This gets used instead of scale/cscale when those options are set
             to ``custom``. The colorspace it operates on depends on the values
-            of ``linear-scaling`` and ``sigmoid-upscaling``.
-        post-shader
-            This gets applied after upscaling and subtitle blending (when
+            of ``linear-scaling`` and ``sigmoid-upscaling``, so no assumptions
+            should be made here.
+        post-shaders (list)
+            These get applied after upscaling and subtitle blending (when
             ``blend-subtitles`` is enabled), but before color management.
             Operates on linear RGB if ``linear-scaling`` is in effect,
-            otherwise non-linear RGB.
+            otherwise non-linear RGB. This is the best place for colorspace
+            transformations (eg. saturation mapping).
 
         These files must define a function with the following signature::
 
-            vec4 sample(sampler2D tex, vec2 pos, vec2 size)
+            vec4 sample(sampler2D tex, vec2 pos, vec2 tex_size)
 
         The meanings of the parameters are as follows:
 
@@ -551,8 +557,9 @@ Available video output drivers are:
             The source texture for the shader.
         vec2 pos
             The position to be sampled, in coordinate space [0-1].
-        vec2 size
-            The size of the texture, in pixels.
+        vec2 tex_size
+            The size of the texture, in pixels. This may differ from image_size,
+            eg. for subsampled content or for post-shaders.
 
         In addition to these parameters, the following uniforms are also
         globally available:
@@ -562,15 +569,16 @@ Available video output drivers are:
         int frame
             A simple count of frames rendered, increases by one per frame and
             never resets (regardless of seeks).
-        vec2 subsample (source-shader only)
-            The subsampling ratio for that plane (eg. (2,2) for 4:2:0 content).
+        vec2 image_size
+            The size in pixels of the input image.
         float cmul (source-shader only)
             The multiplier needed to pull colors up to the right bit depth. The
-            source-shader should multiply any sampled colors by this.
+            source-shader must multiply any sampled colors by this, in order
+            to normalize them to the full scale.
 
         For example, a shader that inverts the colors could look like this::
 
-            vec4 sample(sampler2D tex, vec2 pos, vec2 size)
+            vec4 sample(sampler2D tex, vec2 pos, vec2 tex_size)
             {
                 vec4 color = texture(tex, pos);
                 return vec4(1.0 - color.rgb, color.a);

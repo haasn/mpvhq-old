@@ -111,7 +111,8 @@ static bool load_profile(struct gl_lcms *p)
         return false;
 
     MP_INFO(p, "Opening ICC profile '%s'\n", p->icc_path);
-    struct bstr iccdata = stream_read_file(p->icc_path, p, p->global);
+    struct bstr iccdata = stream_read_file(p->icc_path, p, p->global,
+                                           100000000); // 100 MB
     if (!iccdata.len)
         return false;
 
@@ -210,7 +211,8 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
     // check cache
     if (p->opts.cache) {
         MP_INFO(p, "Opening 3D LUT cache in file '%s'.\n", p->opts.cache);
-        struct bstr cachedata = stream_read_file(p->opts.cache, tmp, p->global);
+        struct bstr cachedata = stream_read_file(p->opts.cache, tmp, p->global,
+                                                 1000000000); // 1 GB
         if (bstr_eatstart(&cachedata, bstr0(LUT3D_CACHE_HEADER))
             && bstr_eatstart(&cachedata, bstr0(cache_info))
             && bstr_eatstart(&cachedata, iccdata)
