@@ -1163,6 +1163,11 @@ static void pass_sample_separated_gen(struct gl_video *p, struct scaler *scaler,
     if (use_ar)
         GLSLF("color = mix(color, clamp(color, lo, hi), %f);\n",
               scaler->conf.antiring);
+    // demo mode
+    if (planar) {
+        GLSL(color = mix(color, c,
+                    lessThan(vec4(texcoord0.x + texcoord0.y), vec4(1)));)
+    }
     GLSLF("}\n");
 }
 
