@@ -93,6 +93,11 @@ struct gl_transform {
     float t[2];
 };
 
+static const struct gl_transform identity_transform = {
+    .m = {{1,0}, {0,1}},
+    .t = {0,0},
+};
+
 void gl_transform_ortho(struct gl_transform *t, float x0, float x1,
                         float y0, float y1);
 

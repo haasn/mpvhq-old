@@ -50,7 +50,7 @@
 
 // Other texture units are reserved for specific purposes
 #define TEXUNIT_SCALERS  TEXUNIT_VIDEO_NUM
-#define TEXUNIT_3DLUT    (TEXUNIT_SCALERS+4)
+#define TEXUNIT_3DLUT    (TEXUNIT_SCALERS+5)
 #define TEXUNIT_DITHER   (TEXUNIT_3DLUT+1)
 
 // scale/cscale arguments that map directly to shader filter routines.
@@ -130,6 +130,7 @@ struct scaler {
 
 struct fbosurface {
     struct fbotex fbotex;
+    struct fbotex pyramid[16];
     int64_t pts;
     double vpts; // used for synchronizing subtitles only
 };
@@ -187,6 +188,9 @@ struct gl_video {
     struct fbotex indirect_fbo;
     struct fbotex blend_subs_fbo;
     struct fbosurface surfaces[FBOSURFACES_MAX];
+    // Reverse pyramid for motion vectors
+    struct fbotex mvec_fbo[16];
+    struct scaler mvec_scaler;
 
     // these are duplicated so we can keep rendering back and forth between
     // them to support an unlimited number of shader passes per step
@@ -197,7 +201,7 @@ struct gl_video {
     int surface_now;
     bool is_interpolated;
 
-    // state for luma (0), luma-down(1), chroma (2) and temporal (3) scalers
+    // state for luma (0), luma-down (1), chroma (2) and temporal (3) scalers
     struct scaler scaler[4];
 
     struct mp_csp_equalizer video_eq;
@@ -586,6 +590,8 @@ static void uninit_rendering(struct gl_video *p)
     for (int n = 0; n < 4; n++)
         uninit_scaler(p, &p->scaler[n]);
 
+    uninit_scaler(p, &p->mvec_scaler);
+
     gl->DeleteTextures(1, &p->dither_texture);
     p->dither_texture = 0;
 
@@ -595,6 +601,7 @@ static void uninit_rendering(struct gl_video *p)
     fbotex_uninit(&p->blend_subs_fbo);
 
     for (int n = 0; n < 2; n++) {
+        fbotex_uninit(&p->mvec_fbo[n]);
         fbotex_uninit(&p->pre_fbo[n]);
         fbotex_uninit(&p->post_fbo[n]);
     }
@@ -905,7 +912,7 @@ static void finish_pass_direct(struct gl_video *p, GLint fbo, int vp_w, int vp_h
 //          FBO, if the required parameters have changed
 // w, h: required FBO target dimension, and also defines the target rectangle
 //       used for rasterization
-// tex: the texture unit to load the result back into
+// tex: the video texture unit to load the result back into (-1 for none)
 // flags: 0 or combination of FBOTEX_FUZZY_W/FBOTEX_FUZZY_H (setting the fuzzy
 //        flags allows the FBO to be larger than the w/h parameters)
 static void finish_pass_fbo(struct gl_video *p, struct fbotex *dst_fbo,
@@ -915,7 +922,8 @@ static void finish_pass_fbo(struct gl_video *p, struct fbotex *dst_fbo,
 
     finish_pass_direct(p, dst_fbo->fbo, dst_fbo->tex_w, dst_fbo->tex_h,
                        &(struct mp_rect){0, 0, w, h}, 0);
-    pass_load_fbotex(p, dst_fbo, tex, w, h);
+    if (tex >= 0)
+        pass_load_fbotex(p, dst_fbo, tex, w, h);
 }
 
 static void uninit_scaler(struct gl_video *p, struct scaler *scaler)
@@ -1135,7 +1143,20 @@ static void pass_sample_separated_gen(struct gl_video *p, struct scaler *scaler,
     bool planar = d_x == 0 && d_y == 0;
     GLSL(vec4 color = vec4(0.0);)
     GLSLF("{\n");
-    if (!planar) {
+    if (planar) {
+        // Get motion direction
+        GLSL(vec2 dir = texture(texture4, texcoord4).rg - vec2(0.5);)
+        /*
+        GLSL(vec4 a = texture(texture4, texcoord0);)
+        GLSL(vec4 b = texture(texture5, texcoord0);)
+
+        GLSL(float delta = a.r - b.r;)
+        GLSL(vec2 grad = a.gb + b.gb;)
+        GLSL(float gradmag = sqrt(dot(grad, grad) + 0.01);)
+
+        GLSL(vec2 dir = delta/gradmag * grad;)
+        */
+    } else {
         GLSLF("vec2 dir = vec2(%d, %d);\n", d_x, d_y);
         GLSL(pt *= dir;)
         GLSL(float fcoord = dot(fract(pos * size - vec2(0.5)), dir);)
@@ -1150,7 +1171,9 @@ static void pass_sample_separated_gen(struct gl_video *p, struct scaler *scaler,
     GLSLF("// scaler samples\n");
     for (int n = 0; n < N; n++) {
         if (planar) {
-            GLSLF("c = texture(texture%d, texcoord%d);\n", n, n);
+            GLSLF("c = texture(texture%d, texcoord%d + "
+                  "(%d - fcoord) * dir);\n",
+                  n, n, n - N / 2 + 1);
         } else {
             GLSLF("c = texture(tex, base + pt * vec2(%d));\n", n);
         }
@@ -1163,6 +1186,10 @@ static void pass_sample_separated_gen(struct gl_video *p, struct scaler *scaler,
     if (use_ar)
         GLSLF("color = mix(color, clamp(color, lo, hi), %f);\n",
               scaler->conf.antiring);
+    if (planar) {
+        //GLSL(color.rgb = vec3(dir.x, dir.y - dir.x, -dir.y) + vec3(0.5);)
+        //GLSL(color.rgb = pow(color.rgb, vec3(1.961));)
+    }
     GLSLF("}\n");
 }
 
@@ -1977,7 +2004,6 @@ static void pass_draw_osd(struct gl_video *p, int draw_flags, double pts,
 static void pass_render_frame(struct gl_video *p)
 {
     p->use_linear = p->opts.linear_scaling || p->opts.sigmoid_upscaling;
-    p->use_indirect = false; // set to true as needed by pass_*
     pass_read_video(p);
     pass_convert_yuv(p);
     if (apply_shaders(p, p->opts.pre_shaders, &p->pre_fbo[0], 0,
@@ -2033,10 +2059,113 @@ static void pass_draw_to_screen(struct gl_video *p, int fbo)
     finish_pass_direct(p, fbo, p->vp_w, p->vp_h, &p->dst_rect, flags);
 }
 
+// This relies on the indirect FBO already being rendered, since it samples
+// from it.
+static void pass_render_gradients(struct gl_video *p, struct fbotex pyramid[16])
+{
+    assert(p->use_indirect);
+    assert(p->image_w < 65536 && p->image_h < 65536); // due to 16 FBO limit
+
+    // Conversion to grayscale first. Ideally done in linear light but this
+    // is not necessary
+    pass_load_fbotex(p, &p->indirect_fbo, 0, p->image_w, p->image_h);
+    // XXX: Convert to vec3
+    float m[3][3] = {{0}};
+    mp_get_rgb2xyz_matrix(mp_get_csp_primaries(p->image_params.primaries), m);
+    gl_sc_uniform_mat3(p->sc, "xyz_matrix", true, &m[0][0]);
+    GLSL(float luma = (texture(texture0, texcoord0).rgb * xyz_matrix).y;)
+
+    /*
+    // Compute the gradient here as well, even though it requires converting
+    // more pixels to grayscale - it's faster and easier than sampling again
+    GLSL(vec2 pt = vec2(1.0) / texture_size0;)
+    GLSL(vec2 grad = vec2( (texture(texture0, texcoord0 + vec2(pt.x, 0.0)).rgb
+                            * xyz_matrix).y - luma,
+                           (texture(texture0, texcoord0 + vec2(0.0, pt.y)).rgb
+                            * xyz_matrix).y - luma);)
+    GLSL(vec4 color = vec4(luma, grad / pt + vec2(0.5), 1.0);)
+    */
+
+    GLSL(vec4 color = vec4(luma, 0.0, 0.0, 1.0);)
+    finish_pass_fbo(p, &pyramid[0], p->image_w, p->image_h, 0, 0);
+
+    // Iteratively downscale
+    int i = 1;
+    static const struct scaler_config conf = {{"ewa_lanczos"}};
+    for (int x = p->image_w/2, y = p->image_h/2;
+         x >= 2 || y >= 2;
+         x /= 2, y /= 2, i++)
+    {
+        /*
+        GLSL(vec2 pt = vec2(2.0) / texture_size0;)
+        GLSL(float luma = texture(texture0, texcoord0).r;)
+        GLSL(vec2 grad = vec2(texture(texture0, texcoord0 +
+                                        vec2(pt.x, 0.0)).r - luma,
+                              texture(texture0, texcoord0 +
+                                        vec2(0.0, pt.y)).r - luma);)
+        // Note: A constant 0.5 is added to support negative values even
+        // with integer fbo formats
+        GLSL(vec4 color = vec4(luma, grad / pt + vec2(0.5), 1.0);)
+        finish_pass_fbo(p, &pyramid[i], x, y, 0, 0);
+        */
+        pass_sample(p, 0, &p->mvec_scaler, &conf, 2.0, x, y, identity_transform);
+        finish_pass_fbo(p, &pyramid[i], x, y, 0, 0);
+    }
+
+    // Explicitly clear the remaining textures to distinguish them
+    for (; i < 16; i++)
+        fbotex_uninit(&pyramid[i]);
+}
+
+// Iteratively guess and refine motion vectors between two image pyramids
+static void pass_compute_mvecs(struct gl_video *p, struct fbotex a[16],
+                               struct fbotex b[16])
+{
+    // Start at the end and work our way back up
+    bool first = true;
+    for (int i = 15; i >= 0; i--) {
+        assert(a[i].tex_w == b[i].tex_w && a[i].tex_h == b[i].tex_h);
+        if (a[i].tex_w == 0 || a[i].tex_h == 0)
+            continue;
+
+        // Get the initial guess for h (starts with 0, otherwise use the
+        // previous pass)
+        if (first) {
+            GLSL(vec4 color;)
+            GLSL(vec2 h = vec2(0.0);)
+            first = false;
+        } else {
+            static const struct scaler_config conf = {{"ewa_lanczos"}};
+            pass_sample(p, 0, &p->mvec_scaler, &conf, 1.0, a[i].tex_w, a[i].tex_h, identity_transform);
+            GLSL(vec2 h = color.xy - vec2(0.5);)
+        }
+
+        // Sample the pyramid textures, with tex1 offset by the guess
+        pass_load_fbotex(p, &a[i], 1, a[i].tex_w, a[i].tex_h);
+        pass_load_fbotex(p, &b[i], 2, b[i].tex_w, b[i].tex_h);
+        GLSL(float a = texture(texture1, texcoord1 - h).r;)
+        GLSL(float b = texture(texture2, texcoord2).r;)
+
+        // Compute the difference and differential
+        GLSL(vec2 pt1 = vec2(1.0) / texture_size1;)
+        GLSL(float df = a - b;)
+        GLSL(float dx = texture(texture1, texcoord1 - h + vec2(pt1.x, 0.0)).r - a;)
+        GLSL(float dy = texture(texture1, texcoord1 - h + vec2(0.0, pt1.y)).r - a;)
+        GLSL(vec2 d = vec2(dx, dy);)
+        GLSL(vec2 hdif = mix(vec2(0.0), df / d, greaterThan(d, vec2(0.1)));)
+        GLSL(hdif = pt1 * clamp(hdif, -0.5, 0.5);)
+
+        // Render the adjusted h to the texture
+        GLSL(color = vec4(h + hdif + vec2(0.5), 0.0, 1.0);)
+        finish_pass_fbo(p, &p->mvec_fbo[i], a[i].tex_w, a[i].tex_h, 0, 0);
+    }
+}
+
 // Draws an interpolate frame to fbo, based on the frame timing in t
 static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
                                        struct frame_timing *t)
 {
+    p->use_indirect = true;
     int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
         vp_h = p->dst_rect.y1 - p->dst_rect.y0;
 
@@ -2045,7 +2174,8 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
     if (!p->surfaces[p->surface_now].pts) {
         pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[p->surface_now].fbotex,
-                        vp_w, vp_h, 0, FBOTEX_FUZZY);
+                        vp_w, vp_h, -1, FBOTEX_FUZZY);
+        pass_render_gradients(p, p->surfaces[p->surface_now].pyramid);
         p->surfaces[p->surface_now].pts = t ? t->pts : 0;
         p->surfaces[p->surface_now].vpts = p->image.mpi->pts;
         p->surface_idx = p->surface_now;
@@ -2081,7 +2211,8 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
         MP_STATS(p, "new-pts");
         pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[surface_dst].fbotex,
-                        vp_w, vp_h, 0, FBOTEX_FUZZY);
+                        vp_w, vp_h, -1, FBOTEX_FUZZY);
+        pass_render_gradients(p, p->surfaces[surface_dst].pyramid);
         p->surfaces[surface_dst].pts = t->pts;
         p->surfaces[surface_dst].vpts = p->image.mpi->pts;
         p->surface_idx = surface_dst;
@@ -2142,13 +2273,18 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
                                   texture(texture1, texcoord1),
                                   inter_coeff);)
         } else {
+            // Compute motion vectors
+            pass_compute_mvecs(p, p->surfaces[surface_now].pyramid,
+                                  p->surfaces[surface_nxt].pyramid);
+            int mv = 0;
+            pass_load_fbotex(p, &p->mvec_fbo[mv], 4, p->mvec_fbo[mv].tex_w, p->mvec_fbo[mv].tex_h);
             mix = (t->next_vsync - pts_now) / fscale;
             gl_sc_uniform_f(p->sc, "fcoord", mix);
             pass_sample_separated_gen(p, tscale, 0, 0);
         }
         for (int i = 0; i < size; i++) {
-            pass_load_fbotex(p, &p->surfaces[fbosurface_wrap(surface_bse+i)].fbotex,
-                             i, vp_w, vp_h);
+            int s = fbosurface_wrap(surface_bse+i);
+            pass_load_fbotex(p, &p->surfaces[s].fbotex, i, vp_w, vp_h);
         }
         MP_STATS(p, "frame-mix");
         MP_DBG(p, "inter frame ppts: %lld, pts: %lld, vsync: %lld, mix: %f\n",
@@ -2188,6 +2324,7 @@ void gl_video_render_frame(struct gl_video *p, int fbo, struct frame_timing *t)
 
     if (vimg->mpi) {
         gl_sc_set_vao(p->sc, &p->vao);
+        p->use_indirect = false; // set to true as needed by pass_*
 
         if (p->opts.interpolation) {
             gl_video_interpolate_frame(p, fbo, t);
@@ -2716,6 +2853,7 @@ struct gl_video *gl_video_init(GL *gl, struct mp_log *log, struct mpv_global *g)
         .gl_target = GL_TEXTURE_2D,
         .texture_16bit_depth = 16,
         .scaler = {{.index = 0}, {.index = 1}, {.index = 2}, {.index = 3}},
+        .mvec_scaler = {.index = 4},
         .sc = gl_sc_create(gl, log, g),
     };
     gl_video_set_debug(p, true);

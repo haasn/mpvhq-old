@@ -247,6 +247,7 @@ struct mp_cmat {
     float c[3];
 };
 
+void mp_get_rgb2xyz_matrix(struct mp_csp_primaries src, float matrix[3][3]);
 void mp_get_cms_matrix(struct mp_csp_primaries src, struct mp_csp_primaries dest,
                        enum mp_render_intent intent, float cms_matrix[3][3]);
 
