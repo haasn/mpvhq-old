@@ -1,16 +1,33 @@
-mpvhq
-===
+![http://mpv.io/](https://raw.githubusercontent.com/mpv-player/mpv.io/master/source/images/mpv-logo-128.png)
 
-Overview
---------
+## mpvhq
+
+--------------
+
+
+* [Overview](#overview)
+* [Downloads](#downloads)
+* [Compilation](#compilation)
+* [FFmpeg vs. Libav](#ffmpeg-vs-libav)
+* [Release cycle](#release-cycle)
+* [Bug reports](#bug-reports)
+* [Contributing](#contributing)
+* [Relation to MPlayer and mplayer2](#relation-to-mplayer-and-mplayer2)
+* [Wiki](https://github.com/mpv-player/mpv/wiki)
+* [Man pages](http://mpv.io/manual/master/)
+* [Contact](#contact)
+* [License](#license)
+
+## Overview
+
 
 **mpvhq** is a media player based on MPlayer, mplayer2 and mpv. It supports a wide
 variety of video file formats, audio and video codecs, and subtitle types.
 
 Releases can be found on the [release list][releases].
 
-Downloads
----------
+## Downloads
+
 
 For semi-official builds and third-party packages of the official mpv please see
 [mpv.io](http://mpv.io/installation/).
@@ -23,8 +40,8 @@ Packages for this particular fork are available for the following distributions:
 
 - [Gentoo (haasn/gentoo-overlay)](https://github.com/haasn/gentoo-overlay/blob/master/media-video/mpv/mpv-9999.ebuild)
 
-Compilation
------------
+## Compilation
+
 
 Compiling with full features requires development files for several
 external libraries. Below is a list of some important requirements.
@@ -97,16 +114,16 @@ OSX.
 If you want to build a Windows binary, you either have to use MSYS2 and MinGW,
 or cross-compile from Linux with MinGW. See [Windows compilation][windows_compilation].
 
-FFmpeg vs. Libav
-----------------
+## FFmpeg vs. Libav
+
 
 Generally, mpvhq should work with the latest release as well as the git version
 of both FFmpeg and Libav. But FFmpeg is preferred, and some mpv features work
-with FFmpeg only. See the [wiki article][ffmpeg_vs_libav] about the issue.
+with FFmpeg only (subtitle formats in particular).
 
 
-Release cycle
--------------
+## Release cycle
+
 
 Every few months, a new release is cut off of the master branch and is assigned
 a 0.X.0 version number.
@@ -124,21 +141,21 @@ Releases other than the latest release are unsupported and unmaintained.
 
 See the [release policy document][release-policy] for more information.
 
-Bug reports
------------
+## Bug reports
+
 
 Please use the [issue tracker][issue-tracker] provided by GitHub to send us bug
 reports or feature requests.
 
-Contributing
-------------
+## Contributing
+
 
 For small changes you can just send us pull requests through GitHub. For bigger
 changes come and talk to us on IRC before you start working on them. It will
 make code review easier for both parties later on.
 
-Relation to MPlayer, mplayer2 and mpv
---------------------------------
+## Relation to MPlayer, mplayer2 and mpv
+
 
 mpv is based on mplayer2, which in turn is based on the original MPlayer
 (also called mplayer, mplayer-svn, mplayer1). Many changes have been made, a
@@ -156,13 +173,16 @@ which already started this process of removing cruft.)
 In general, mpv should be considered a completely new program, rather than a
 MPlayer drop-in replacement.
 
-mpvhq is based on mpv and focuses on videophile quality features and is created because of disagreements with the mpv developers.
+mpvhq is based on mpv and focuses on videophile quality features and was
+originally created because of disagreements with the mpv developers, but
+currently exists more as a testbed for my own personal improvements, that will
+hopefully all make their way back into mpv.
 
 If you are wondering what's different from mplayer2 and MPlayer, an incomplete
 list of changes is located [here][mplayer-changes].
 
-Contact
--------
+## Contact
+
 
 Most activity happens on the IRC channel and the github issue tracker. The
 mailing lists are mostly unused.
@@ -186,3 +206,8 @@ only if discretion is required.
 [release-policy]: https://github.com/mpv-player/mpv/blob/master/DOCS/release-policy.md
 [windows_compilation]: https://github.com/mpv-player/mpv/blob/master/DOCS/compile-windows.md
 [mplayer-changes]: https://github.com/mpv-player/mpv/blob/master/DOCS/mplayer-changes.rst
+
+## License 
+
+
+[GPLv2](https://github.com/mpv-player/mpv/blob/master/LICENSE)
