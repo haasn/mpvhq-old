@@ -1145,7 +1145,7 @@ static void pass_sample_separated_gen(struct gl_video *p, struct scaler *scaler,
     GLSLF("{\n");
     if (planar) {
         // Get motion direction
-        GLSL(vec2 dir = texture(texture4, texcoord4).rg - vec2(0.5);)
+        GLSL(vec2 dir = texture(texture4, texcoord4).xy - vec2(0.5);)
         /*
         GLSL(vec4 a = texture(texture4, texcoord0);)
         GLSL(vec4 b = texture(texture5, texcoord0);)
@@ -2123,7 +2123,7 @@ static void pass_compute_mvecs(struct gl_video *p, struct fbotex a[16],
 {
     // Start at the end and work our way back up
     bool first = true;
-    for (int i = 15; i >= 0; i--) {
+    for (int i = 0; i >= 0; i--) {
         assert(a[i].tex_w == b[i].tex_w && a[i].tex_h == b[i].tex_h);
         if (a[i].tex_w == 0 || a[i].tex_h == 0)
             continue;
@@ -2143,20 +2143,22 @@ static void pass_compute_mvecs(struct gl_video *p, struct fbotex a[16],
         // Sample the pyramid textures, with tex1 offset by the guess
         pass_load_fbotex(p, &a[i], 1, a[i].tex_w, a[i].tex_h);
         pass_load_fbotex(p, &b[i], 2, b[i].tex_w, b[i].tex_h);
+        GLSL(vec2 pt = vec2(1.0) / texture_size1;)
+        GLSL(vec2 hdif = vec2(0.0);)
+        GLSL(float min = 0.02;)
         GLSL(float a = texture(texture1, texcoord1 - h).r;)
-        GLSL(float b = texture(texture2, texcoord2).r;)
-
-        // Compute the difference and differential
-        GLSL(vec2 pt1 = vec2(1.0) / texture_size1;)
-        GLSL(float df = a - b;)
-        GLSL(float dx = texture(texture1, texcoord1 - h + vec2(pt1.x, 0.0)).r - a;)
-        GLSL(float dy = texture(texture1, texcoord1 - h + vec2(0.0, pt1.y)).r - a;)
-        GLSL(vec2 d = vec2(dx, dy);)
-        GLSL(vec2 hdif = mix(vec2(0.0), df / d, greaterThan(d, vec2(0.1)));)
-        GLSL(hdif = pt1 * clamp(hdif, -0.5, 0.5);)
+        GLSL(for (int x = -10; x <= 10; x++)
+                for (int y = -10; y <= 10; y++) {
+                    float b = texture(texture2, texcoord2 + pt*vec2(x,y)).r;
+                    float dist = abs(a - b);
+                    if (dist < min) {
+                        min = dist;
+                        hdif = vec2(x, y);
+                    }
+                })
 
         // Render the adjusted h to the texture
-        GLSL(color = vec4(h + hdif + vec2(0.5), 0.0, 1.0);)
+        GLSL(color = vec4(h + pt * hdif + vec2(0.5), 0.0, 1.0);)
         finish_pass_fbo(p, &p->mvec_fbo[i], a[i].tex_w, a[i].tex_h, 0, 0);
     }
 }
@@ -2174,7 +2176,7 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
     if (!p->surfaces[p->surface_now].pts) {
         pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[p->surface_now].fbotex,
-                        vp_w, vp_h, -1, FBOTEX_FUZZY);
+                        vp_w, vp_h, -1, 0);
         pass_render_gradients(p, p->surfaces[p->surface_now].pyramid);
         p->surfaces[p->surface_now].pts = t ? t->pts : 0;
         p->surfaces[p->surface_now].vpts = p->image.mpi->pts;
@@ -2211,7 +2213,7 @@ static void gl_video_interpolate_frame(struct gl_video *p, int fbo,
         MP_STATS(p, "new-pts");
         pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[surface_dst].fbotex,
-                        vp_w, vp_h, -1, FBOTEX_FUZZY);
+                        vp_w, vp_h, -1, 0);
         pass_render_gradients(p, p->surfaces[surface_dst].pyramid);
         p->surfaces[surface_dst].pts = t->pts;
         p->surfaces[surface_dst].vpts = p->image.mpi->pts;
