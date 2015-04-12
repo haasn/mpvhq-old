@@ -24,6 +24,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+
+#include <libavutil/motion_vector.h>
+
 #include "common/common.h"
 #include "common/msg.h"
 #include "csputils.h"
@@ -88,6 +91,8 @@ typedef struct mp_image {
 
     uint8_t *planes[MP_MAX_PLANES];
     int stride[MP_MAX_PLANES];
+    const AVMotionVector *vectors;
+    int vector_count;
 
     int pict_type; // 0->unknown, 1->I, 2->P, 3->B
     int fields;

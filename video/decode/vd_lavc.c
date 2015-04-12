@@ -396,6 +396,9 @@ static void init_avctx(struct dec_video *vd, const char *decoder,
 #endif
     }
 
+    // Used for mp_image.vectors
+    avctx->flags2 |= CODEC_FLAG2_EXPORT_MVS;
+
     avctx->skip_loop_filter = lavc_param->skip_loop_filter;
     avctx->skip_idct = lavc_param->skip_idct;
     avctx->skip_frame = lavc_param->skip_frame;
