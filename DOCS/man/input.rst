@@ -1156,16 +1156,16 @@ Property list
 ``colormatrix`` (RW)
     See ``--colormatrix``.
 
-``colormatrix-input-range`` (RW)
+``colormatrix-input-range``
     Alias for ``video-params/colorlevels``.
 
-``colormatrix-output-range`` (RW)
+``colormatrix-output-range``
     Alias for ``video-params/outputlevels``.
 
-``colormatrix-primaries`` (RW)
+``colormatrix-primaries``
     Alias for ``video-params/primaries``.
 
-``colormatrix-gamma`` (RW)
+``colormatrix-gamma``
     Alias for ``video-params/gamma``.
 
 ``ontop`` (RW)
@@ -1267,7 +1267,10 @@ Property list
         The colormatrix in use as string. (Exact values subject to change.)
 
     ``video-params/colorlevels``
-        The colorlevels as string. (Exact values subject to change.)
+        The color levels as string. (Exact values subject to change.)
+
+    ``video-params/outputlevels``
+        The output levels as string. (Exact values subject to change.)
 
     ``video-params/primaries``
         The primaries in use as string. (Exact values subject to change.)
