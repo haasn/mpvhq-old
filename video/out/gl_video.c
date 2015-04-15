@@ -439,6 +439,8 @@ const struct m_sub_options gl_video_conf = {
         OPT_FLOATRANGE("dscale-antiring", scaler[1].antiring, 0, 0.0, 1.0),
         OPT_FLOATRANGE("cscale-antiring", scaler[2].antiring, 0, 0.0, 1.0),
         OPT_FLOATRANGE("tscale-antiring", scaler[3].antiring, 0, 0.0, 1.0),
+        OPT_FLOAT("subpixel-width",  scaler[0].subpixel_size[0], 0, -1.0, 1.0),
+        OPT_FLOAT("subpixel-height", scaler[0].subpixel_size[1], 0, -1.0, 1.0),
         OPT_FLAG("scaler-resizes-only", scaler_resizes_only, 0),
         OPT_FLAG("linear-scaling", linear_scaling, 0),
         OPT_FLAG("fancy-downscaling", fancy_downscaling, 0),
@@ -1190,42 +1192,69 @@ static void pass_sample_separated(struct gl_video *p, int src_tex,
     pass_sample_separated_gen(p, scaler, 1, 0);
 }
 
-static void pass_sample_polar(struct gl_video *p, struct scaler *scaler)
+static void pass_sample_polar(struct gl_video *p, struct scaler *scaler,
+                              int w, int h)
 {
     double radius = scaler->kernel->f.radius;
     int bound = (int)ceil(radius);
     bool use_ar = scaler->conf.antiring > 0;
+    bool use_sub = scaler->conf.subpixel_size[0] != 0 ||
+                   scaler->conf.subpixel_size[1] != 0;
     GLSL(vec4 color = vec4(0.0);)
     GLSLF("{\n");
     GLSL(vec2 fcoord = fract(pos * size - vec2(0.5));)
     GLSL(vec2 base = pos - fcoord * pt;)
+    GLSLF("vec3 w, d, wsum = vec3(0.0);\n");
     GLSL(vec4 c;)
-    GLSLF("float w, d, wsum = 0.0;\n");
     if (use_ar) {
         GLSL(vec4 lo = vec4(1.0);)
         GLSL(vec4 hi = vec4(0.0);)
     }
+    if (use_sub) {
+        GLSLF("vec2 sub = 1.0 / vec2(%d, %d) * vec2(%f, %f)/3.0;\n", w, h,
+              scaler->conf.subpixel_size[0], scaler->conf.subpixel_size[1]);
+    }
+    float sx = abs(scaler->conf.subpixel_size[0]) / 3.0,
+          sy = abs(scaler->conf.subpixel_size[1]) / 3.0;
     gl_sc_uniform_sampler(p->sc, "lut", scaler->gl_target,
                           TEXUNIT_SCALERS + scaler->index);
     GLSLF("// scaler samples\n");
     for (int y = 1-bound; y <= bound; y++) {
         for (int x = 1-bound; x <= bound; x++) {
-            // Since we can't know the subpixel position in advance, assume a
+            // Since we can't know the exact position in advance, assume a
             // worst case scenario
-            int yy = y > 0 ? y-1 : y;
-            int xx = x > 0 ? x-1 : x;
+            int yy = y > 0 ? y-1+sy : y - sy;
+            int xx = x > 0 ? x-1+sx : x - sx;
             double dmax = sqrt(xx*xx + yy*yy);
             // Skip samples definitely outside the radius
             if (dmax >= radius)
                 continue;
-            GLSLF("d = length(vec2(%d, %d) - fcoord)/%f;\n", x, y, radius);
+            GLSLF("d.g = length(vec2(%d, %d) - fcoord);\n", x, y);
+            if (use_sub) {
+                GLSLF("d.r = length(vec2(%d, %d) - (fcoord - sub));\n", x, y);
+                GLSLF("d.b = length(vec2(%d, %d) - (fcoord + sub));\n", x, y);
+            }
+            GLSLF("d = d / %f;\n", radius);
             // Check for samples that might be skippable
             if (dmax >= radius - 1)
-                GLSLF("if (d < 1.0) {\n");
-            GLSL(w = texture1D(lut, d).r;)
-            GLSL(wsum += w;)
-            GLSLF("c = texture(tex, base + pt * vec2(%d, %d));\n", x, y);
-            GLSL(color += vec4(w) * c;)
+                GLSLF("if (%s < 1.0) {\n", use_sub ? "min(d.r, min(d.g, d.b))"
+                                                   : "d.g");
+
+            GLSL(w.g = texture1D(lut, d.g).x;)
+            GLSL(wsum.g += w.g;)
+            if (use_sub) {
+                // also sample red/blue channel weights
+                GLSL(w.rb = vec2(texture1D(lut, d.r).x, texture1D(lut, d.b).x);)
+                GLSL(wsum.rb += w.rb;)
+                GLSLF("c.r = texture(tex, base + pt * vec2(%d, %d) - sub).r;\n", x, y);
+                GLSLF("c.ga = texture(tex, base + pt * vec2(%d, %d)).ga;\n", x, y);
+                GLSLF("c.b = texture(tex, base + pt * vec2(%d, %d) + sub).b;\n", x, y);
+                GLSL(color += w.rgbg * c;)
+            } else {
+                // Re-use green channel's weights for everything
+                GLSLF("c = texture(tex, base + pt * vec2(%d, %d));\n", x, y);
+                GLSL(color += w.gggg * c;)
+            }
             if (use_ar && x >= 0 && y >= 0 && x <= 1 && y <= 1) {
                 GLSL(lo = min(lo, c);)
                 GLSL(hi = max(hi, c);)
@@ -1234,7 +1263,7 @@ static void pass_sample_polar(struct gl_video *p, struct scaler *scaler)
                 GLSLF("}\n");
         }
     }
-    GLSL(color = color / vec4(wsum);)
+    GLSLF("color = color / wsum.%s;\n", use_sub ? "rgbg" : "gggg");
     if (use_ar)
         GLSLF("color = mix(color, clamp(color, lo, hi), %f);\n",
               scaler->conf.antiring);
@@ -1396,7 +1425,7 @@ static void pass_sample(struct gl_video *p, int src_tex, struct scaler *scaler,
             p->opts.scale_shader = NULL;
         }
     } else if (scaler->kernel && scaler->kernel->polar) {
-        pass_sample_polar(p, scaler);
+        pass_sample_polar(p, scaler, w, h);
     } else if (scaler->kernel) {
         pass_sample_separated(p, src_tex, scaler, w, h, transform);
     } else {

@@ -39,6 +39,7 @@ struct scaler_config {
     struct scaler_fun window;
     float radius;
     float antiring;
+    float subpixel_size[2];
 };
 
 struct gl_video_opts {
