@@ -2121,6 +2121,18 @@ Demuxer
     will be slower (especially when playing over http), or that behavior with
     broken files is much worse. So don't use this option.
 
+``--demuxer-mkv-fix-timestamps=<yes|no>``
+    Fix rounded Matroska timestamps (enabled by default). Matroska usually
+    stores timestamps rounded to milliseconds. This means timestamps jitter
+    by some amount around the intended timestamp. mpv can correct the timestamps
+    based on the framerate value stored in the file: the timestamp is rounded
+    to the next frame (according to the framerate), unless the new timestamp
+    would deviate more than 1ms from the old one. This should undo the rounding
+    done by the muxer.
+
+    (The allowed deviation can be less than 1ms if the file uses a non-standard
+    timecode scale.)
+
 ``--demuxer-rawaudio-channels=<value>``
     Number of channels (or channel layout) if ``--demuxer=rawaudio`` is used
     (default: stereo).
