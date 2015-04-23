@@ -181,6 +181,7 @@ Playback Control
                file, such as a chapter seek, but not for relative seeks like
                the default behavior of arrow keys (default).
     :yes:      Use precise seeks whenever possible.
+    :always:   Same as ``yes`` (for compatibility).
 
 ``--hr-seek-demuxer-offset=<seconds>``
     This option exists to work around failures to do precise seeks (as in
@@ -2029,6 +2030,12 @@ Demuxer
 
 ``--demuxer-lavf-format=<name>``
     Force a specific libavformat demuxer.
+
+``--demuxer-lavf-hacks=<yes|no>``
+    By default, some formats will be handled differently from other formats
+    by explicitly checking for them. Most of these compensate for weird or
+    imperfect behavior from libavformat demuxers. Passing ``no`` disables
+    these. For debugging and testing only.
 
 ``--demuxer-lavf-genpts-mode=<no|lavf>``
     Mode for deriving missing packet PTS values from packet DTS. ``lavf``
