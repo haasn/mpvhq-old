@@ -11,7 +11,7 @@ extern const struct mp_icc_opts gl_lcms_opts_vhq_def;
 struct mp_icc_opts {
     char *profile;
     int profile_auto;
-    char *cache;
+    char *cache_dir;
     char *size_str;
     int intent;
 };
