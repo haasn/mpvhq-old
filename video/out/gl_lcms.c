@@ -39,6 +39,8 @@
 #if HAVE_LCMS2
 
 #include <lcms2.h>
+#include <libavutil/sha.h>
+#include <libavutil/mem.h>
 
 struct gl_lcms {
     void *icc_data;
@@ -77,9 +79,11 @@ const struct m_sub_options mp_icc_conf = {
     .opts = (const m_option_t[]) {
         OPT_STRING("icc-profile", profile, 0),
         OPT_FLAG("icc-profile-auto", profile_auto, 0),
-        OPT_STRING("icc-cache", cache, 0),
+        OPT_STRING("icc-cache-dir", cache_dir, 0),
         OPT_INT("icc-intent", intent, 0),
         OPT_STRING_VALIDATE("3dlut-size", size_str, 0, validate_3dlut_size_opt),
+
+        OPT_REMOVED("icc-cache", "see icc-cache-dir"),
         {0}
     },
     .size = sizeof(struct mp_icc_opts),
@@ -185,7 +189,17 @@ bool gl_lcms_has_changed(struct gl_lcms *p)
     return change;
 }
 
-#define LUT3D_CACHE_HEADER "mpv 3dlut cache 1.0\n"
+#define LUT3D_CACHE_HEADER "mpv 3dlut cache 1.1\n"
+
+// computes a SHA-256 hash
+static void hash_bstr(uint8_t out[32], struct bstr src)
+{
+    struct AVSHA *sha = av_sha_alloc();
+    av_sha_init(sha, 256);
+    av_sha_update(sha, src.start, src.len);
+    av_sha_final(sha, out);
+    av_free(sha);
+}
 
 bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
 {
@@ -215,13 +229,22 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
         .len   = p->icc_size,
     };
 
+    char *cache_file = NULL;
+    if (p->opts.cache_dir) {
+        cache_file = talloc_strdup(tmp, p->opts.cache_dir);
+        cache_file = talloc_asprintf_append(cache_file, "/");
+        uint8_t hash[32];
+        hash_bstr(hash, iccdata);
+        for (int i = 0; i < sizeof(hash); i++)
+            cache_file = talloc_asprintf_append(cache_file, "%02X", hash[i]);
+    }
+
     // check cache
-    if (p->opts.cache) {
-        MP_INFO(p, "Opening 3D LUT cache in file '%s'.\n", p->opts.cache);
-        struct bstr cachedata = load_file(tmp, p->opts.cache, p->global);
+    if (cache_file) {
+        MP_INFO(p, "Opening 3D LUT cache in file '%s'.\n", cache_file);
+        struct bstr cachedata = load_file(tmp, cache_file, p->global);
         if (bstr_eatstart(&cachedata, bstr0(LUT3D_CACHE_HEADER))
             && bstr_eatstart(&cachedata, bstr0(cache_info))
-            && bstr_eatstart(&cachedata, iccdata)
             && cachedata.len == talloc_get_size(output))
         {
             memcpy(output, cachedata.start, cachedata.len);
@@ -284,12 +307,11 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
 
     cmsDeleteTransform(trafo);
 
-    if (p->opts.cache) {
-        char *fname = mp_get_user_path(NULL, p->global, p->opts.cache);
+    if (cache_file) {
+        char *fname = mp_get_user_path(NULL, p->global, cache_file);
         FILE *out = fopen(fname, "wb");
         if (out) {
             fprintf(out, "%s%s", LUT3D_CACHE_HEADER, cache_info);
-            fwrite(p->icc_data, p->icc_size, 1, out);
             fwrite(output, talloc_get_size(output), 1, out);
             fclose(out);
         }
