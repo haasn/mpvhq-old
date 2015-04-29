@@ -405,13 +405,13 @@ List of Input Commands
 
     The ``mode`` argument is one of the following:
 
-    <keep-selection> (default)
-        Do not change current track selections.
-
-    <reselect>
-        Select the default audio and video streams, which typically selects
+    <reselect> (default)
+        Select the default audio and subtitle streams, which typically selects
         external files with highest preference. (The implementation is not
         perfect, and could be improved on request.)
+
+    <keep-selection>
+        Do not change current track selections.
 
 
 Input Commands that are Possibly Subject to Change
@@ -1167,20 +1167,18 @@ Property list
 ``field-dominance`` (RW)
     See ``--field-dominance``
 
-``colormatrix`` (RW)
-    See ``--colormatrix``.
+``colormatrix`` (R)
+    Redirects to ``video-params/colormatrix``. This parameter (as well as
+    similar ones) can be overridden with the ``format`` video filter.
 
-``colormatrix-input-range``
-    Alias for ``video-params/colorlevels``.
+``colormatrix-input-range`` (R)
+    See ``colormatrix``.
 
-``colormatrix-output-range``
-    Alias for ``video-params/outputlevels``.
+``colormatrix-output-range`` (R)
+    See ``colormatrix``.
 
-``colormatrix-primaries``
-    Alias for ``video-params/primaries``.
-
-``colormatrix-gamma``
-    Alias for ``video-params/gamma``.
+``colormatrix-primaries`` (R)
+    See ``colormatrix``.
 
 ``ontop`` (RW)
     See ``--ontop``.
@@ -1529,6 +1527,13 @@ Property list
 
     ``track-list/N/selected``
         ``yes`` if the track is currently decoded, ``no`` otherwise.
+
+    ``track-list/N/ff-index``
+        The stream index as usually used by the FFmpeg utilities. Note that
+        this can be potentially wrong if a demuxer other than libavformat
+        (``--demuxer=lavf``) is used. For mkv files, the index will usually
+        match even if the default (builtin) demuxer is used, but there is
+        no hard guarantee.
 
     When querying the property with the client API using ``MPV_FORMAT_NODE``,
     or with Lua ``mp.get_property_native``, this will return a mpv_node with

@@ -433,12 +433,6 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
         bool digital = ca_stream_supports_digital(ao, streams[i]);
 
         if (digital) {
-            err = CA_GET(streams[i], kAudioStreamPropertyPhysicalFormat,
-                         &p->original_asbd);
-            if (!CHECK_CA_WARN("could not get stream's physical format to "
-                               "revert to, getting the next one"))
-                continue;
-
             AudioStreamRangedDescription *formats;
             size_t n_formats;
 
@@ -485,6 +479,10 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
         goto coreaudio_error;
     }
 
+    err = CA_GET(p->stream, kAudioStreamPropertyPhysicalFormat,
+                 &p->original_asbd);
+    CHECK_CA_ERROR("could not get stream's original physical format");
+
     if (!ca_change_format(ao, p->stream, p->stream_asbd))
         goto coreaudio_error;
 
@@ -501,10 +499,17 @@ static int init_digital(struct ao *ao, AudioStreamBasicDescription asbd)
                    p->stream_asbd.mFramesPerPacket);
 
     uint32_t latency_frames = 0;
-    err = CA_GET_O(p->device, kAudioDevicePropertyLatency, &latency_frames);
-    if (err != noErr) {
+    uint32_t latency_properties[] = {
+        kAudioDevicePropertyLatency,
+        kAudioDevicePropertyBufferFrameSize,
+        kAudioDevicePropertySafetyOffset,
+    };
+    for (int n = 0; n < MP_ARRAY_SIZE(latency_properties); n++) {
+        uint32_t temp;
+        err = CA_GET_O(p->device, kAudioDevicePropertyLatency, &temp);
         CHECK_CA_WARN("cannot get device latency");
-        latency_frames = 0;
+        if (err == noErr)
+            latency_frames += temp;
     }
 
     p->hw_latency_us = ca_frames_to_us(ao, latency_frames);

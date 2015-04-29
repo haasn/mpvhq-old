@@ -475,6 +475,10 @@ static int reconfig(struct vo *vo, struct mp_image_params *params, int flags)
     mp_image_params_guess_csp(&p->sws->dst);
     mp_image_set_params(p->cur_frame, &p->sws->dst);
 
+    struct modeset_buf *buf = p->dev->bufs;
+    memset(buf[0].map, 0, buf[0].size);
+    memset(buf[1].map, 0, buf[1].size);
+
     if (mp_sws_reinit(p->sws) < 0)
         return -1;
 
@@ -607,6 +611,9 @@ static int control(struct vo *vo, uint32_t request, void *data)
 {
     struct priv *p = vo->priv;
     switch (request) {
+    case VOCTRL_SCREENSHOT_WIN:
+        *(struct mp_image**)data = mp_image_new_copy(p->cur_frame);
+        return VO_TRUE;
     case VOCTRL_REDRAW_FRAME:
         draw_image(vo, p->last_input);
         return VO_TRUE;

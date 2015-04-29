@@ -107,8 +107,10 @@ Available audio output drivers are:
         ``--audio-device`` to select the device (use ``--audio-device=help``
         to get a list of all devices and their mpv name).
 
-        You can also try
-        `Using the upmix plugin <https://github.com/mpv-player/mpv/wiki/ALSA:-Surround-Sound-and-Upmixing>`_.
+        You can also try `using the upmix plugin <http://git.io/vfuAy>`_.
+        This setup enables multichannel audio on the ``default`` device
+        with automatic upmixing with shared access, so playing stereo
+        and multichannel audio at the same time will work as expected.
 
 ``oss``
     OSS audio output driver
@@ -257,6 +259,10 @@ Available audio output drivers are:
 
     ``broken-delay``
         Simulate broken audio drivers, which don't report latency correctly.
+
+    ``channel-layouts``
+        If not empty, this is a ``,`` separated list of channel layouts the
+        AO allows. This can be used to test channel layout selection.
 
 ``pcm``
     Raw PCM/WAVE file writer audio output
