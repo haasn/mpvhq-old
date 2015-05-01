@@ -739,6 +739,9 @@ Available video output drivers are:
         to create a 3D LUT. Note that these files contain uncompressed LUTs.
         Their size depends on the ``3dlut-size``, and can be very big.
 
+        NOTE: This is not cleaned automatically, so old, unused cache files
+        may stick around indefinitely.
+
     ``icc-intent=<value>``
         Specifies the ICC intent used for the color transformation (when using
         ``icc-profile``).

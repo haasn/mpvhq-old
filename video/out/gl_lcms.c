@@ -182,18 +182,6 @@ bool gl_lcms_has_changed(struct gl_lcms *p)
     return change;
 }
 
-#define LUT3D_CACHE_HEADER "mpv 3dlut cache 1.1\n"
-
-// computes a SHA-256 hash
-static void hash_bstr(uint8_t out[32], struct bstr src)
-{
-    struct AVSHA *sha = av_sha_alloc();
-    av_sha_init(sha, 256);
-    av_sha_update(sha, src.start, src.len);
-    av_sha_final(sha, out);
-    av_free(sha);
-}
-
 bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
 {
     int s_r, s_g, s_b;
@@ -210,24 +198,27 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
     struct lut3d *lut = NULL;
     cmsContext cms = NULL;
 
-    char *cache_info =
+    char *cache_file = NULL;
+    if (p->opts.cache_dir) {
         // Gamma is included in the header to help uniquely identify it,
         // because we may change the parameter in the future or make it
         // customizable, same for the primaries.
-        talloc_asprintf(tmp, "intent=%d, size=%dx%dx%d, gamma=2.4, prim=bt2020\n",
-                        p->opts.intent, s_r, s_g, s_b);
+        char *cache_info = talloc_asprintf(tmp,
+                "ver=1.1, intent=%d, size=%dx%dx%d, gamma=2.4, prim=bt2020\n",
+                p->opts.intent, s_r, s_g, s_b);
 
-    bstr iccdata = (bstr) {
-        .start = p->icc_data,
-        .len   = p->icc_size,
-    };
+        uint8_t hash[32];
+        struct AVSHA *sha = av_sha_alloc();
+        if (!sha)
+            abort();
+        av_sha_init(sha, 256);
+        av_sha_update(sha, cache_info, strlen(cache_info));
+        av_sha_update(sha, p->icc_data, p->icc_size);
+        av_sha_final(sha, hash);
+        av_free(sha);
 
-    char *cache_file = NULL;
-    if (p->opts.cache_dir) {
         cache_file = talloc_strdup(tmp, p->opts.cache_dir);
         cache_file = talloc_asprintf_append(cache_file, "/");
-        uint8_t hash[32];
-        hash_bstr(hash, iccdata);
         for (int i = 0; i < sizeof(hash); i++)
             cache_file = talloc_asprintf_append(cache_file, "%02X", hash[i]);
     }
@@ -237,10 +228,7 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
         MP_VERBOSE(p, "Opening 3D LUT cache in file '%s'.\n", cache_file);
         struct bstr cachedata = stream_read_file(cache_file, tmp, p->global,
                                                  1000000000); // 1 GB
-        if (bstr_eatstart(&cachedata, bstr0(LUT3D_CACHE_HEADER))
-            && bstr_eatstart(&cachedata, bstr0(cache_info))
-            && cachedata.len == talloc_get_size(output))
-        {
+        if (cachedata.len == talloc_get_size(output)) {
             memcpy(output, cachedata.start, cachedata.len);
             goto done;
         } else {
@@ -305,7 +293,6 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
         char *fname = mp_get_user_path(NULL, p->global, cache_file);
         FILE *out = fopen(fname, "wb");
         if (out) {
-            fprintf(out, "%s%s", LUT3D_CACHE_HEADER, cache_info);
             fwrite(output, talloc_get_size(output), 1, out);
             fclose(out);
         }

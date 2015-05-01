@@ -544,6 +544,7 @@ const m_option_t mp_opts[] = {
 
     OPT_SUBSTRUCT("screenshot", screenshot_image_opts, image_writer_conf, 0),
     OPT_STRING("screenshot-template", screenshot_template, 0),
+    OPT_STRING("screenshot-directory", screenshot_direcrory, 0),
 
     OPT_SUBSTRUCT("input", input_opts, input_config, 0),
 
@@ -764,7 +765,7 @@ const struct MPOpts mp_default_opts = {
     .use_embedded_fonts = 1,
     .sub_fix_timing = 1,
     .sub_cp = "auto",
-    .screenshot_template = "shot%n",
+    .screenshot_template = "mpv-shot%n",
 
     .hwdec_codecs = "h264,vc1,wmv3",
 
