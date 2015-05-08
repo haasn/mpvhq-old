@@ -15,15 +15,11 @@
  * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#import <Cocoa/Cocoa.h>
-#include "osdep/macosx_application.h"
+#ifndef MPV_COREAUDIO_CHMAP_H
+#define MPV_COREAUDIO_CHMAP_H
 
-@interface Application : NSApplication
-- (void)initialize_menu;
-- (void)registerSelector:(SEL)selector forKey:(MPMenuKey)key;
-- (void)stopPlayback;
+#include <AudioToolbox/AudioToolbox.h>
 
-@property(nonatomic, retain) NSMutableDictionary *menuItems;
-@property(nonatomic, retain) NSArray *files;
-@property(nonatomic, assign) size_t openCount;
-@end
+bool ca_init_chmap(struct ao *ao, AudioDeviceID device);
+
+#endif

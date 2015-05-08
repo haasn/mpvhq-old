@@ -30,6 +30,7 @@
 #include "osdep/io.h"
 #include "osdep/terminal.h"
 #include "osdep/timer.h"
+#include "osdep/main-fn.h"
 
 #include "common/av_log.h"
 #include "common/codecs.h"
@@ -64,10 +65,6 @@
 
 #ifdef _WIN32
 #include <windows.h>
-
-#ifndef BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE
-#define BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE (0x0001)
-#endif
 #endif
 
 #if HAVE_COCOA
@@ -103,7 +100,36 @@ static const char def_config[] =
     "terminal=no\n"
     "force-window=yes\n"
     "idle=once\n"
-    "screenshot-directory=~desktop/\n";
+    "screenshot-directory=~~desktop/\n"
+    "\n"
+    "[libmpv]\n"
+    "config=no\n"
+    "idle=yes\n"
+    "terminal=no\n"
+    "input-terminal=no\n"
+    "osc=no\n"
+    "ytdl=no\n"
+    "input-default-bindings=no\n"
+    "input-vo-keyboard=no\n"
+    "input-lirc=no\n"
+    "input-appleremote=no\n"
+    "input-media-keys=no\n"
+    "input-app-events=no\n"
+    "stop-playback-on-init-failure=yes\n"
+#if HAVE_ENCODING
+    "\n"
+    "[encoding]\n"
+    "vo=lavc\n"
+    "ao=lavc\n"
+    "keep-open=no\n"
+    "force-window=no\n"
+    "gapless-audio=yes\n"
+    "resume-playback=no\n"
+    "load-scripts=no\n"
+    "osc=no\n"
+    "framedrop=no\n"
+#endif
+;
 
 static pthread_mutex_t terminal_owner_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct MPContext *terminal_owner;
@@ -275,37 +301,6 @@ static bool handle_help_options(struct MPContext *mpctx)
     return opt_exit;
 }
 
-static void osdep_preinit(int argc, char **argv)
-{
-    char *enable_talloc = getenv("MPV_LEAK_REPORT");
-    if (argc > 1 && (strcmp(argv[1], "-leak-report") == 0 ||
-                     strcmp(argv[1], "--leak-report") == 0))
-        enable_talloc = "1";
-    if (enable_talloc && strcmp(enable_talloc, "1") == 0)
-        talloc_enable_leak_report();
-
-#ifdef _WIN32
-    // stop Windows from showing all kinds of annoying error dialogs
-    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
-
-    // Enable heap corruption detection
-    HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);
-
-    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
-    WINBOOL (WINAPI *pSetDllDirectory)(LPCWSTR lpPathName) =
-        (WINBOOL (WINAPI *)(LPCWSTR))GetProcAddress(kernel32, "SetDllDirectoryW");
-    WINBOOL (WINAPI *pSetSearchPathMode)(DWORD Flags) =
-        (WINBOOL (WINAPI *)(DWORD))GetProcAddress(kernel32, "SetSearchPathMode");
-
-    // Always use safe search paths for DLLs and other files, ie. never use the
-    // current directory
-    if (pSetSearchPathMode)
-        pSetDllDirectory(L"");
-    if (pSetSearchPathMode)
-        pSetSearchPathMode(BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE);
-#endif
-}
-
 static int cfg_include(void *ctx, char *filename, int flags)
 {
     struct MPContext *mpctx = ctx;
@@ -436,15 +431,7 @@ int mp_initialize(struct MPContext *mpctx, char **options)
             MP_INFO(mpctx, "Encoding initialization failed.");
             return -1;
         }
-        m_config_set_option0(mpctx->mconfig, "vo", "lavc");
-        m_config_set_option0(mpctx->mconfig, "ao", "lavc");
-        m_config_set_option0(mpctx->mconfig, "keep-open", "no");
-        m_config_set_option0(mpctx->mconfig, "force-window", "no");
-        m_config_set_option0(mpctx->mconfig, "gapless-audio", "yes");
-        m_config_set_option0(mpctx->mconfig, "resume-playback", "no");
-        m_config_set_option0(mpctx->mconfig, "load-scripts", "no");
-        m_config_set_option0(mpctx->mconfig, "osc", "no");
-        m_config_set_option0(mpctx->mconfig, "framedrop", "no");
+        m_config_set_profile(mpctx->mconfig, "encoding", 0);
         // never use auto
         if (!opts->audio_output_channels.num) {
             m_config_set_option_ext(mpctx->mconfig, bstr0("audio-channels"),
@@ -510,7 +497,9 @@ int mp_initialize(struct MPContext *mpctx, char **options)
 
 int mpv_main(int argc, char *argv[])
 {
-    osdep_preinit(argc, argv);
+    char *enable_talloc = getenv("MPV_LEAK_REPORT");
+    if (enable_talloc && strcmp(enable_talloc, "1") == 0)
+        talloc_enable_leak_report();
 
     struct MPContext *mpctx = mp_create();
     struct MPOpts *opts = mpctx->opts;

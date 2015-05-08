@@ -182,11 +182,11 @@ char *mp_get_user_path(void *talloc_ctx, struct mpv_global *global,
                 res = mp_find_config_file(talloc_ctx, global, rest0);
             } else if (bstr_equals0(prefix, "")) {
                 res = mp_path_join(talloc_ctx, bstr0(getenv("HOME")), rest);
-            } else {
+            } else if (bstr_eatstart0(&prefix, "~")) {
                 char type[80];
                 snprintf(type, sizeof(type), "%.*s", BSTR_P(prefix));
-                res = talloc_strdup(talloc_ctx,
-                                    mp_get_platform_path(talloc_ctx, type));
+                const char *p = mp_get_platform_path(talloc_ctx, type);
+                res = mp_path_join(talloc_ctx, bstr0(p), rest);
             }
         }
     }

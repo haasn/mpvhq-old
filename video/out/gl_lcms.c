@@ -36,6 +36,8 @@
 #include "gl_video.h"
 #include "gl_lcms.h"
 
+#include "osdep/io.h"
+
 #if HAVE_LCMS2
 
 #include <lcms2.h>
@@ -114,9 +116,11 @@ static bool load_profile(struct gl_lcms *p)
     if (!p->icc_path)
         return false;
 
-    MP_VERBOSE(p, "Opening ICC profile '%s'\n", p->icc_path);
-    struct bstr iccdata = stream_read_file(p->icc_path, p, p->global,
+    char *fname = mp_get_user_path(NULL, p->global, p->icc_path);
+    MP_VERBOSE(p, "Opening ICC profile '%s'\n", fname);
+    struct bstr iccdata = stream_read_file(fname, p, p->global,
                                            100000000); // 100 MB
+    talloc_free(fname);
     if (!iccdata.len)
         return false;
 
@@ -199,7 +203,7 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
     cmsContext cms = NULL;
 
     char *cache_file = NULL;
-    if (p->opts.cache_dir) {
+    if (p->opts.cache_dir && p->opts.cache_dir[0]) {
         // Gamma is included in the header to help uniquely identify it,
         // because we may change the parameter in the future or make it
         // customizable, same for the primaries.
@@ -217,10 +221,13 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
         av_sha_final(sha, hash);
         av_free(sha);
 
-        cache_file = talloc_strdup(tmp, p->opts.cache_dir);
-        cache_file = talloc_asprintf_append(cache_file, "/");
+        char *cache_dir = mp_get_user_path(tmp, p->global, p->opts.cache_dir);
+        cache_file = talloc_strdup(tmp, "");
         for (int i = 0; i < sizeof(hash); i++)
             cache_file = talloc_asprintf_append(cache_file, "%02X", hash[i]);
+        cache_file = mp_path_join(tmp, bstr0(cache_dir), bstr0(cache_file));
+
+        mp_mkdirp(cache_dir);
     }
 
     // check cache
@@ -290,13 +297,11 @@ bool gl_lcms_get_lut3d(struct gl_lcms *p, struct lut3d **result_lut3d)
     cmsDeleteTransform(trafo);
 
     if (cache_file) {
-        char *fname = mp_get_user_path(NULL, p->global, cache_file);
-        FILE *out = fopen(fname, "wb");
+        FILE *out = fopen(cache_file, "wb");
         if (out) {
             fwrite(output, talloc_get_size(output), 1, out);
             fclose(out);
         }
-        talloc_free(fname);
     }
 
 done: ;
