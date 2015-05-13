@@ -473,8 +473,10 @@ static void wait_vo(struct vo *vo, int64_t until_time)
         pthread_mutex_unlock(&in->lock);
     } else {
         pthread_mutex_lock(&in->lock);
-        if (!in->need_wakeup)
-            mpthread_cond_timedwait(&in->wakeup, &in->lock, until_time);
+        if (!in->need_wakeup) {
+            struct timespec ts = mp_time_us_to_timespec(until_time);
+            pthread_cond_timedwait(&in->wakeup, &in->lock, &ts);
+        }
         in->need_wakeup = false;
         pthread_mutex_unlock(&in->lock);
     }
@@ -484,7 +486,7 @@ static void wakeup_locked(struct vo *vo)
 {
     struct vo_internal *in = vo->in;
 
-    pthread_cond_signal(&in->wakeup);
+    pthread_cond_broadcast(&in->wakeup);
     if (vo->event_fd >= 0)
         wakeup_event_fd(vo);
     if (vo->driver->wakeup)
@@ -558,6 +560,22 @@ void vo_wait_frame(struct vo *vo)
     pthread_mutex_lock(&in->lock);
     while (in->frame_queued || in->rendering)
         pthread_cond_wait(&in->wakeup, &in->lock);
+    pthread_mutex_unlock(&in->lock);
+}
+
+// Wait until realtime is >= ts
+// called without lock
+static void wait_until(struct vo *vo, int64_t target)
+{
+    struct vo_internal *in = vo->in;
+    struct timespec ts = mp_time_us_to_timespec(target);
+    pthread_mutex_lock(&in->lock);
+    while (target > mp_time_us()) {
+        if (in->queued_events & VO_EVENT_LIVE_RESIZING)
+            break;
+        if (pthread_cond_timedwait(&in->wakeup, &in->lock, &ts))
+            break;
+    }
     pthread_mutex_unlock(&in->lock);
 }
 
@@ -661,7 +679,7 @@ static bool render_frame(struct vo *vo)
 
         MP_STATS(vo, "start video");
 
-        if (in->vsync_timed) {
+        if (vo->driver->draw_image_timed) {
             struct frame_timing t = (struct frame_timing) {
                 .pts        = pts,
                 .next_vsync = next_vsync,
@@ -672,12 +690,7 @@ static bool render_frame(struct vo *vo)
             vo->driver->draw_image(vo, img);
         }
 
-        while (1) {
-            int64_t now = mp_time_us();
-            if (target <= now)
-                break;
-            mp_sleep_us(target - now);
-        }
+        wait_until(vo, target);
 
         bool drop = false;
         if (vo->driver->flip_page_timed)
@@ -711,7 +724,7 @@ static bool render_frame(struct vo *vo)
         in->request_redraw = false;
     }
 
-    pthread_cond_signal(&in->wakeup); // for vo_wait_frame()
+    pthread_cond_broadcast(&in->wakeup); // for vo_wait_frame()
     mp_input_wakeup(vo->input_ctx);
 
     pthread_mutex_unlock(&in->lock);
@@ -971,6 +984,8 @@ void vo_event(struct vo *vo, int event)
     pthread_mutex_lock(&in->lock);
     if ((in->queued_events & event & VO_EVENTS_USER) != (event & VO_EVENTS_USER))
         mp_input_wakeup(vo->input_ctx);
+    if (event)
+        wakeup_locked(vo);
     in->queued_events |= event;
     in->internal_events |= event;
     pthread_mutex_unlock(&in->lock);
