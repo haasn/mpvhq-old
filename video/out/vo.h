@@ -145,6 +145,8 @@ struct voctrl_get_equalizer_args {
 // - draw_image can be called with a NULL mpi to repeat the previous frame
 #define VO_CAP_SYNC_DISPLAY 4
 
+#define VO_MAX_FUTURE_FRAMES 10
+
 struct vo;
 struct osd_state;
 struct mp_image;
@@ -158,9 +160,26 @@ struct vo_extra {
 };
 
 struct frame_timing {
+    // If > 0, realtime when frame should be shown, in mp_time_us() units.
     int64_t pts;
+    // Realtime of estimated previous and next vsync events.
     int64_t next_vsync;
     int64_t prev_vsync;
+    // The current frame to be drawn. NULL means redraw previous frame
+    // (e.g. repeated frames).
+    // (Equivalent to the mp_image parameter of draw_image_timed, until the
+    // parameter is removed.)
+    struct mp_image *frame;
+    // List of future images, starting with the next one. This does not
+    // care about repeated frames - it simply contains the next real frames.
+    // vo_set_queue_params() sets how many frames this should include, though
+    // the actual number can be lower.
+    // future_frames[0] is the next frame.
+    // Note that this has frames only when a new real frame is pushed. Redraw
+    // calls or repeated frames do not include this.
+    // Ownership of the frames belongs to the caller.
+    int num_future_frames;
+    struct mp_image **future_frames;
 };
 
 struct vo_driver {
@@ -307,7 +326,7 @@ int vo_reconfig(struct vo *vo, struct mp_image_params *p, int flags);
 
 int vo_control(struct vo *vo, uint32_t request, void *data);
 bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts);
-void vo_queue_frame(struct vo *vo, struct mp_image *image,
+void vo_queue_frame(struct vo *vo, struct mp_image **images,
                     int64_t pts_us, int64_t duration, int num_vsyncs,
                     int64_t *projected_end);
 void vo_wait_frame(struct vo *vo);
@@ -324,8 +343,9 @@ void vo_query_formats(struct vo *vo, uint8_t *list);
 void vo_event(struct vo *vo, int event);
 int vo_query_and_reset_events(struct vo *vo, int events);
 struct mp_image *vo_get_current_frame(struct vo *vo);
-
-void vo_set_flip_queue_params(struct vo *vo, int64_t offset_us, bool vsync_timed);
+void vo_set_queue_params(struct vo *vo, int64_t offset_us, bool vsync_timed,
+                         int num_future_frames);
+int vo_get_num_future_frames(struct vo *vo);
 int64_t vo_get_vsync_interval(struct vo *vo);
 double vo_get_display_fps(struct vo *vo);
 

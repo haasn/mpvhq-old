@@ -150,6 +150,9 @@ struct vo_internal {
 
     bool rendering;                 // true if an image is being rendered
     struct mp_image *frame_queued;  // the image that should be rendered
+    struct mp_image *future_frames[VO_MAX_FUTURE_FRAMES];
+    int num_future_frames;
+    int req_future_frames;          // VO's requested value of num_future_frames
     int64_t frame_pts;              // realtime of intended display
     int64_t frame_duration;         // realtime frame duration (for framedrop)
     int frame_num_vsyncs;           // number of vsyncs to display the frame
@@ -417,6 +420,23 @@ int vo_control(struct vo *vo, uint32_t request, void *data)
 }
 
 // must be called locked
+// transfers ownership of frames[] items to the VO
+static void set_future_frames(struct vo *vo, struct mp_image **frames)
+{
+    struct vo_internal *in = vo->in;
+    for (int n = 0; n < in->num_future_frames; n++)
+        talloc_free(in->future_frames[n]);
+    in->num_future_frames = 0;
+    for (int n = 0; frames && frames[n]; n++) {
+        if (n < in->req_future_frames) {
+            in->future_frames[in->num_future_frames++] = frames[n];
+        } else {
+            talloc_free(frames[n]);
+        }
+    }
+}
+
+// must be called locked
 static void forget_frames(struct vo *vo)
 {
     struct vo_internal *in = vo->in;
@@ -424,6 +444,7 @@ static void forget_frames(struct vo *vo)
     in->hasframe_rendered = false;
     in->drop_count = 0;
     mp_image_unrefp(&in->frame_queued);
+    set_future_frames(vo, NULL);
     in->frame_num_vsyncs = 0;
     // don't unref current_frame; we always want to be able to redraw it
 }
@@ -540,18 +561,20 @@ bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts)
 
 // Direct the VO thread to put the currently queued image on the screen.
 // vo_is_ready_for_frame() must have returned true before this call.
-// Ownership of the image is handed to the vo.
+// images[0] is the frame to draw, images[n+1] are future frames (NULL
+// terminated). Ownership of all the images is handed to the vo.
 // If pts_us is negative, disable timing and draw frame as soon as possible.
 // num_vsync gives the number of vsyncs this frame should be repeated (or
 // dropped if it's 0) - valid if timing is disabled only.
 // *projected_end is set to the estimated time the frame is fully rendered
 // (includes frames repeated with num_vsync) - valid only if PTS is not used.
-void vo_queue_frame(struct vo *vo, struct mp_image *image,
+void vo_queue_frame(struct vo *vo, struct mp_image **images,
                     int64_t pts_us, int64_t duration, int num_vsyncs,
                     int64_t *projected_end)
 {
     struct vo_internal *in = vo->in;
     pthread_mutex_lock(&in->lock);
+    struct mp_image *image = images[0];
     assert(image);
     assert(vo->config_ok && !in->frame_queued && !in->frame_num_vsyncs);
     bool display_timing = pts_us < 0;
@@ -560,6 +583,7 @@ void vo_queue_frame(struct vo *vo, struct mp_image *image,
     in->frame_pts = pts_us;
     in->frame_duration = duration;
     in->frame_num_vsyncs = display_timing ? num_vsyncs : 0;
+    set_future_frames(vo, images + 1);
     assert(display_timing || num_vsyncs == 1);
     int64_t projected_duration = 0;
     if (display_timing && num_vsyncs == 0) {
@@ -723,6 +747,11 @@ static bool render_frame(struct vo *vo)
     } else {
         in->rendering = true;
         in->hasframe_rendered = true;
+        int num_future_frames = in->num_future_frames;
+        in->num_future_frames = 0;
+        struct mp_image *future_frames[VO_MAX_FUTURE_FRAMES];
+        for (int n = 0; n < num_future_frames; n++)
+            future_frames[n] = in->future_frames[n];
         pthread_mutex_unlock(&in->lock);
         mp_input_wakeup(vo->input_ctx); // core can queue new video now
 
@@ -733,6 +762,9 @@ static bool render_frame(struct vo *vo)
                 .pts        = display_timing ? mp_time_us() : pts,
                 .next_vsync = next_vsync,
                 .prev_vsync = prev_vsync,
+                .frame = img,
+                .num_future_frames = num_future_frames,
+                .future_frames = future_frames,
             };
             vo->driver->draw_image_timed(vo, img, &t);
         } else {
@@ -764,6 +796,8 @@ static bool render_frame(struct vo *vo)
         pthread_mutex_lock(&in->lock);
         in->dropped_frame = drop;
         in->rendering = false;
+        for (int n = 0; n < num_future_frames; n++)
+            talloc_free(future_frames[n]);
     }
 
     if (in->dropped_frame) {
@@ -998,14 +1032,27 @@ const char *vo_get_window_title(struct vo *vo)
 // flip_page[_timed] will be called offset_us microseconds too early.
 // (For vo_vdpau, which does its own timing.)
 // Setting vsync_timed to true redraws as fast as possible.
+// num_future_frames set the requested number of future frames in
+// struct frame_timing.
 // (For vo_opengl smoothmotion.)
-void vo_set_flip_queue_params(struct vo *vo, int64_t offset_us, bool vsync_timed)
+void vo_set_queue_params(struct vo *vo, int64_t offset_us, bool vsync_timed,
+                         int num_future_frames)
 {
     struct vo_internal *in = vo->in;
     pthread_mutex_lock(&in->lock);
     in->flip_queue_offset = offset_us;
     in->vsync_timed = vsync_timed;
+    in->req_future_frames = MPMIN(num_future_frames, VO_MAX_FUTURE_FRAMES);
     pthread_mutex_unlock(&in->lock);
+}
+
+int vo_get_num_future_frames(struct vo *vo)
+{
+    struct vo_internal *in = vo->in;
+    pthread_mutex_lock(&in->lock);
+    int res = in->req_future_frames;
+    pthread_mutex_unlock(&in->lock);
+    return res;
 }
 
 // to be called from the VO thread only
