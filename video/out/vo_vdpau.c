@@ -718,6 +718,7 @@ static int flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
     } else if (vc->user_fps == 0) {
         vc->vsync_interval = vo_get_vsync_interval(vo) * 1000;
     }
+    vc->vsync_interval = MPMAX(vc->vsync_interval, 1);
 
     if (duration > INT_MAX / 1000)
         duration = -1;
