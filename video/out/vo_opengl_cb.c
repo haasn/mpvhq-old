@@ -369,8 +369,12 @@ int mpv_opengl_cb_draw(mpv_opengl_cb_context *ctx, int fbo, int vp_w, int vp_h)
 
     pthread_mutex_unlock(&ctx->lock);
 
-    if (mpi)
+    // mpi->imgfmt == 0 is a dummy frame created by draw_image_timed
+    if (mpi && mpi->imgfmt) {
         gl_video_set_image(ctx->renderer, mpi);
+    } else {
+        talloc_free(mpi);
+    }
 
     gl_video_render_frame(ctx->renderer, fbo, timing.pts ? &timing : NULL);
 
@@ -403,6 +407,8 @@ static void draw_image_timed(struct vo *vo, mp_image_t *mpi,
     struct vo_priv *p = vo->priv;
 
     pthread_mutex_lock(&p->ctx->lock);
+    if (!mpi)
+        mpi = talloc_zero(NULL, struct mp_image);
     mp_image_setrefp(&p->ctx->waiting_frame, mpi);
     if (p->ctx->waiting_frame) {
         p->ctx->waiting_frame->priv =
@@ -630,7 +636,7 @@ static const struct m_option options[] = {
 const struct vo_driver video_out_opengl_cb = {
     .description = "OpenGL Callbacks for libmpv",
     .name = "opengl-cb",
-    .caps = VO_CAP_ROTATE90,
+    .caps = VO_CAP_ROTATE90 | VO_CAP_SYNC_DISPLAY,
     .preinit = preinit,
     .query_format = query_format,
     .reconfig = reconfig,
