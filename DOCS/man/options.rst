@@ -3300,6 +3300,29 @@ Miscellaneous
     out. This delay in reaction time to sudden A/V offsets should be the only
     side-effect of turning this option on, for all sound drivers.
 
+``--video-sync=<default|display>``
+    The ``display`` mode synchronizes video playback to the display. This
+    has several requirements. The player attempts to enable this mode
+    dynamically based on the current circumstances such as video and display
+    framerate. It is enabled only for the ``opengl`` VO currently.
+
+``--video-sync-adjustment-period=<seconds>``
+    Time after which the playback speed is adjusted. This happens periodically
+    with ``--video-sync=display``, and otherwise doesn't happen.
+
+``--video-sync-max-video-change=<value>``
+    Maximum speed difference that is applied to video with
+    ``--video-sync=display``. Display sync mode will be disabled if the
+    monitor and video refresh way do not match within the given range.
+
+``--video-sync-max-audio-change=<value>``
+    Maximum *additional* speed difference that is applied to audio with
+    ``--video-sync=display``. This does not include the video speed change,
+    and merely controls how much audio speed can change in addition to it. Too
+    high values will cause "wobbling" audio as speed is periodically readjusted.
+    If the audio speed (within the given limits) can't compensate for A/V
+    desync, video frames are dropped or repeated.
+
 ``--mf-fps=<value>``
     Framerate used when decoding from multiple PNG or JPEG files with ``mf://``
     (default: 1).

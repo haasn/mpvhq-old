@@ -130,6 +130,7 @@ void update_playback_speed(struct MPContext *mpctx)
 
     double old_speed = mpctx->playback_speed;
     double old_speed2 = mpctx->speed_correction;
+
     mpctx->playback_speed = opts->playback_speed * mpctx->speed_correction;
 
     if (mpctx->playback_speed == old_speed &&
@@ -138,6 +139,9 @@ void update_playback_speed(struct MPContext *mpctx)
 
     // Adjust time until next frame flip for nosound mode
     mpctx->time_frame *= old_speed / mpctx->playback_speed;
+
+    //MP_WARN(mpctx, "Change speed to %f (delta %f)\n",
+    //        mpctx->playback_speed, mpctx->playback_speed - old_speed);
 
     if (!mpctx->d_audio || mpctx->d_audio->afilter->initialized < 1)
         return;

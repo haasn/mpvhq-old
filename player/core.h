@@ -236,6 +236,13 @@ typedef struct MPContext {
     double playback_speed;
     // Additional speed factor chosen by display sync code.
     double speed_correction;
+    double audio_speed_correction;
+    double last_frame_duration;
+    bool display_sync_active;
+    // Timing error (in seconds) due to rounding on vsync boundaries
+    double display_sync_error;
+    // Last time speed was adjusted (in mp_time_us() units)
+    int64_t last_display_sync_adjustment;
     /* Set if audio should be timed to start with video frame after seeking,
      * not set when e.g. playing cover art */
     bool sync_audio_to_video;
