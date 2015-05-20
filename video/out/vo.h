@@ -139,6 +139,13 @@ struct voctrl_get_equalizer_args {
 #define VO_CAP_ROTATE90 1
 // VO does framedrop itself (vo_vdpau). Untimed/encoding VOs never drop.
 #define VO_CAP_FRAMEDROP 2
+// VO plays well with display sync code... requirements:
+// - generally blocks on vsync
+// - generally reports FPS
+// - draw_image can be called with a NULL mpi to repeat the previous frame
+#define VO_CAP_SYNC_DISPLAY 4
+
+#define VO_MAX_FUTURE_FRAMES 10
 
 #define VO_MAX_FUTURE_FRAMES 10
 
@@ -165,6 +172,8 @@ struct vo_frame {
     int64_t prev_vsync;
     // "ideal" display time within the vsync
     int64_t vsync_offset;
+    // how often the frame will be repeated (does not include OSD redraws)
+    int num_vsyncs;
     // Set if the current frame is repeated from the previous. It's guaranteed
     // that the current is the same as the previous one, even if the image
     // pointer is different.
@@ -322,7 +331,7 @@ int vo_reconfig(struct vo *vo, struct mp_image_params *p, int flags);
 
 int vo_control(struct vo *vo, uint32_t request, void *data);
 bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts);
-void vo_queue_frame(struct vo *vo, struct vo_frame *frame);
+void vo_queue_frame(struct vo *vo, struct vo_frame *frame, int64_t *projected_end);
 void vo_wait_frame(struct vo *vo);
 bool vo_still_displaying(struct vo *vo);
 bool vo_has_frame(struct vo *vo);

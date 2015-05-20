@@ -296,6 +296,13 @@ static int mp_property_adjusted_playback_speed(void *ctx, struct m_property *pro
     return m_property_double_ro(action, arg, mpctx->playback_speed);
 }
 
+static int mp_property_display_sync_active(void *ctx, struct m_property *prop,
+                                           int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    return m_property_flag_ro(action, arg, mpctx->display_sync_active);
+}
+
 /// filename with path (RO)
 static int mp_property_path(void *ctx, struct m_property *prop,
                             int action, void *arg)
@@ -3306,6 +3313,7 @@ static const struct m_property mp_properties[] = {
     {"loop-file", mp_property_generic_option},
     {"speed", mp_property_playback_speed},
     {"adjusted-speed", mp_property_adjusted_playback_speed},
+    {"display-sync-active", mp_property_display_sync_active},
     {"filename", mp_property_filename},
     {"stream-open-filename", mp_property_stream_open_filename},
     {"file-size", mp_property_file_size},

@@ -420,6 +420,9 @@ static void forget_frames(struct vo *vo)
     talloc_free(in->frame_queued);
     in->frame_queued = NULL;
     // don't unref current_frame; we always want to be able to redraw it
+    // but reset future repeats, if there any
+    if (in->current_frame)
+        in->current_frame->num_vsyncs = 0;
 }
 
 #ifndef __MINGW32__
@@ -507,12 +510,15 @@ void vo_wakeup(struct vo *vo)
 // next_pts is the exact time when the next frame should be displayed. If the
 // VO is ready, but the time is too "early", return false, and call the wakeup
 // callback once the time is right.
+// If next_pts is negative, disable any timing and draw the frame as fast as
+// possible.
 bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts)
 {
     struct vo_internal *in = vo->in;
     pthread_mutex_lock(&in->lock);
-    bool r = vo->config_ok && !in->frame_queued;
-    if (r) {
+    bool r = vo->config_ok && !in->frame_queued &&
+             (!in->current_frame || in->current_frame->num_vsyncs < 1);
+    if (r && next_pts >= 0) {
         // Don't show the frame too early - it would basically freeze the
         // display by disallowing OSD redrawing or VO interaction.
         // Actually render the frame at earliest 50ms before target time.
@@ -533,14 +539,28 @@ bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts)
 // Direct the VO thread to put the currently queued image on the screen.
 // vo_is_ready_for_frame() must have returned true before this call.
 // Ownership of frame is handed to the vo.
-void vo_queue_frame(struct vo *vo, struct vo_frame *frame)
+// *projected_end is set to the estimated time the frame is fully rendered
+void vo_queue_frame(struct vo *vo, struct vo_frame *frame, int64_t *projected_end)
 {
     struct vo_internal *in = vo->in;
     pthread_mutex_lock(&in->lock);
-    assert(vo->config_ok && !in->frame_queued);
+    assert(vo->config_ok && !in->frame_queued &&
+           (!in->current_frame || in->current_frame->num_vsyncs < 1));
+    bool display_timing = frame->pts < 0;
     in->hasframe = true;
     in->frame_queued = frame;
-    in->wakeup_pts = in->vsync_timed ? 0 : frame->pts + MPMAX(frame->duration, 0);
+    in->wakeup_pts = (display_timing || in->vsync_timed)
+                   ? 0 : frame->pts + MPMAX(frame->duration, 0);
+    // TODO: vsync_interval can be accessed from VO thread only
+    int64_t projected_duration =
+            (frame->num_vsyncs + (in->rendering ? 0 : 1)) * in->vsync_interval;
+    if (mp_time_us() > in->last_flip + in->vsync_interval * 2) {
+        // Too much time has passed (maybe video decoding is too slow).
+        *projected_end = mp_time_us();
+    } else {
+        *projected_end = in->last_flip;
+    }
+    *projected_end += projected_duration;
     wakeup_locked(vo);
     pthread_mutex_unlock(&in->lock);
 }
@@ -602,10 +622,15 @@ static bool render_frame(struct vo *vo)
         in->current_frame = in->frame_queued;
         in->frame_queued = NULL;
     } else if (in->paused || !in->current_frame || !in->hasframe ||
-               !in->vsync_timed)
+               (!in->vsync_timed && !(in->current_frame->pts < 0)))
     {
         goto done;
     }
+
+    bool display_timed = in->current_frame->pts < 0;
+
+    if (display_timed && in->current_frame->num_vsyncs < 1)
+        goto done;
 
     frame = vo_frame_ref(in->current_frame);
     assert(frame);
@@ -621,10 +646,17 @@ static bool render_frame(struct vo *vo)
     frame->next_vsync = next_vsync;
     frame->prev_vsync = prev_vsync;
 
-    frame->vsync_offset = next_vsync - pts;
+    if (display_timed) {
+        frame->pts = mp_time_us();
+    } else {
+        frame->vsync_offset = next_vsync - pts;
+    }
+
+    frame->next_vsync = next_vsync;
+    frame->prev_vsync = prev_vsync;
 
     // Time at which we should flip_page on the VO.
-    int64_t target = pts - in->flip_queue_offset;
+    int64_t target = display_timed ? 0 : pts - in->flip_queue_offset;
 
     bool prev_dropped_frame = in->dropped_frame;
 
@@ -649,6 +681,7 @@ static bool render_frame(struct vo *vo)
         in->dropped_frame |= end_time < prev_vsync;
     }
 
+    in->dropped_frame &= !display_timed;
     in->dropped_frame &= !(vo->driver->caps & VO_CAP_FRAMEDROP);
     in->dropped_frame &= (vo->global->opts->frame_dropping & 1);
     // Even if we're hopelessly behind, rather degrade to 10 FPS playback,
@@ -656,7 +689,7 @@ static bool render_frame(struct vo *vo)
     in->dropped_frame &= mp_time_us() - in->last_flip < 100 * 1000;
     in->dropped_frame &= in->hasframe_rendered;
 
-    if (in->vsync_timed) {
+    if (in->vsync_timed && !display_timed) {
         // this is a heuristic that wakes the thread up some
         // time before the next vsync
         target = next_vsync - MPMIN(in->vsync_interval / 2, 8e3);
@@ -676,6 +709,10 @@ static bool render_frame(struct vo *vo)
     // Setup parameters for the next time this frame is drawn. ("frame" is the
     // frame currently drawn, while in->current_frame is the potentially next.)
     in->current_frame->repeat = true;
+    if (display_timed)
+        in->current_frame->vsync_offset += in->vsync_interval;
+    if (in->current_frame->num_vsyncs > 0)
+        in->current_frame->num_vsyncs -= 1;
 
     if (!in->dropped_frame) {
         in->rendering = true;
@@ -708,6 +745,7 @@ static bool render_frame(struct vo *vo)
         in->vsync_interval_approx = in->last_flip - prev_flip;
 
         MP_STATS(vo, "end video");
+        MP_STATS(vo, "video_end");
 
         pthread_mutex_lock(&in->lock);
         in->dropped_frame = prev_drop_count < vo->in->drop_count;
@@ -895,8 +933,11 @@ bool vo_still_displaying(struct vo *vo)
     pthread_mutex_lock(&vo->in->lock);
     int64_t now = mp_time_us();
     int64_t frame_end = 0;
-    if (in->current_frame)
+    if (in->current_frame) {
         frame_end = in->current_frame->pts + MPMAX(in->current_frame->duration, 0);
+        if (in->current_frame->num_vsyncs > 0)
+            frame_end = INT64_MAX;
+    }
     bool working = now < frame_end || in->rendering || in->frame_queued;
     pthread_mutex_unlock(&vo->in->lock);
     return working && in->hasframe;
