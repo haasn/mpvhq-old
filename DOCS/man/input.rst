@@ -807,6 +807,11 @@ Property list
 ``speed`` (RW)
     See ``--speed``.
 
+``adjusted-speed``
+    The total speed factor at which the player attempts to play the file.
+    Usually it's exactly the same as the value of ``speed``, or very close
+    with an adjustment factor.
+
 ``filename``
     Currently played file, with path stripped. If this is an URL, try to undo
     percent encoding as well. (The result is not necessarily correct, but
