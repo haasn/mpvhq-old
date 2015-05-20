@@ -155,6 +155,7 @@ struct vo_internal {
     int req_future_frames;          // VO's requested value of num_future_frames
     int64_t frame_pts;              // realtime of intended display
     int64_t frame_duration;         // realtime frame duration (for framedrop)
+    int64_t frame_vsync_offset;     // "ideal" display time within vsync
     int frame_num_vsyncs;           // number of vsyncs to display the frame
                                     // (display timing mode only)
     int64_t frame_ended;            // !=0 if the frame was rendered
@@ -564,13 +565,14 @@ bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts)
 // images[0] is the frame to draw, images[n+1] are future frames (NULL
 // terminated). Ownership of all the images is handed to the vo.
 // If pts_us is negative, disable timing and draw frame as soon as possible.
+// vsync_offset is the time in us within a vsync - valid if timing is disabled.
 // num_vsync gives the number of vsyncs this frame should be repeated (or
 // dropped if it's 0) - valid if timing is disabled only.
 // *projected_end is set to the estimated time the frame is fully rendered
 // (includes frames repeated with num_vsync) - valid only if PTS is not used.
 void vo_queue_frame(struct vo *vo, struct mp_image **images,
-                    int64_t pts_us, int64_t duration, int num_vsyncs,
-                    int64_t *projected_end)
+                    int64_t pts_us, int64_t duration, int64_t vsync_offset,
+                    int num_vsyncs, int64_t *projected_end)
 {
     struct vo_internal *in = vo->in;
     pthread_mutex_lock(&in->lock);
@@ -582,6 +584,7 @@ void vo_queue_frame(struct vo *vo, struct mp_image **images,
     in->frame_queued = image;
     in->frame_pts = pts_us;
     in->frame_duration = duration;
+    in->frame_vsync_offset = vsync_offset;
     in->frame_num_vsyncs = display_timing ? num_vsyncs : 0;
     set_future_frames(vo, images + 1);
     assert(display_timing || num_vsyncs == 1);
@@ -663,6 +666,7 @@ static bool render_frame(struct vo *vo)
 
     int64_t pts = in->frame_pts;
     int64_t duration = in->frame_duration;
+    int64_t vsync_offset = in->frame_vsync_offset;
     struct mp_image *img = in->frame_queued;
     bool display_timing = pts < 0;
 
@@ -687,6 +691,8 @@ static bool render_frame(struct vo *vo)
     int64_t prev_vsync = prev_sync(vo, mp_time_us());
     int64_t next_vsync = prev_vsync + in->vsync_interval;
     int64_t end_time = pts + duration;
+    if (!display_timing)
+        vsync_offset = next_vsync - pts;
 
     // Time at which we should flip_page on the VO.
     int64_t target = pts - in->flip_queue_offset;
@@ -762,6 +768,7 @@ static bool render_frame(struct vo *vo)
                 .pts        = display_timing ? mp_time_us() : pts,
                 .next_vsync = next_vsync,
                 .prev_vsync = prev_vsync,
+                .vsync_offset = vsync_offset,
                 .frame = img,
                 .num_future_frames = num_future_frames,
                 .future_frames = future_frames,

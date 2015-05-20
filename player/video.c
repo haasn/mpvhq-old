@@ -998,6 +998,7 @@ void write_video(struct MPContext *mpctx, double endpts)
     mpctx->playback_pts = mpctx->video_pts;
 
     int num_vsyncs = 1;
+    int64_t vsync_offset = 0;
     if (display_timing) {
         // Determine for how many vsyncs a frame should be displayed. This
         // can be e.g. 2 for 30hz on a 60hz display. It can also be 0 if the
@@ -1007,6 +1008,7 @@ void write_video(struct MPContext *mpctx, double endpts)
         double ratio = frame_duration / vsync;
         num_vsyncs = MPMAX(floor(ratio + mpctx->display_sync_error + 0.5), 0);
         mpctx->display_sync_error += frame_duration - num_vsyncs * vsync;
+        vsync_offset = mpctx->display_sync_error * 1e6;
         //MP_WARN(mpctx, "vsyncs s=%d d=%f v=%f r=%f e=%.20f (%f)\n", num_vsyncs,
         //        diff, vsync, ratio, mpctx->display_sync_error, mpctx->display_sync_error / vsync);
         drop_repeat = MPCLAMP(drop_repeat, -num_vsyncs, num_vsyncs);
@@ -1027,7 +1029,7 @@ void write_video(struct MPContext *mpctx, double endpts)
             break; // OOM
     }
     int64_t end_us;
-    vo_queue_frame(vo, frames, pts, duration, num_vsyncs, &end_us);
+    vo_queue_frame(vo, frames, pts, duration, vsync_offset, num_vsyncs, &end_us);
 
     if (display_timing) {
         // Estimate the video position, so we can calculate a good A/V difference

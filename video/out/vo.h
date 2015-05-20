@@ -165,6 +165,8 @@ struct frame_timing {
     // Realtime of estimated previous and next vsync events.
     int64_t next_vsync;
     int64_t prev_vsync;
+    // "ideal" display time within the vsync
+    int64_t vsync_offset;
     // The current frame to be drawn. NULL means redraw previous frame
     // (e.g. repeated frames).
     // (Equivalent to the mp_image parameter of draw_image_timed, until the
@@ -327,8 +329,8 @@ int vo_reconfig(struct vo *vo, struct mp_image_params *p, int flags);
 int vo_control(struct vo *vo, uint32_t request, void *data);
 bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts);
 void vo_queue_frame(struct vo *vo, struct mp_image **images,
-                    int64_t pts_us, int64_t duration, int num_vsyncs,
-                    int64_t *projected_end);
+                    int64_t pts_us, int64_t duration, int64_t vsync_offset,
+                    int num_vsyncs, int64_t *projected_end);
 void vo_wait_frame(struct vo *vo);
 bool vo_still_displaying(struct vo *vo);
 bool vo_has_frame(struct vo *vo);
