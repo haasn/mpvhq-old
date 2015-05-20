@@ -278,9 +278,8 @@ static int mp_property_playback_speed(void *ctx, struct m_property *prop,
     double speed = mpctx->opts->playback_speed;
     switch (action) {
     case M_PROPERTY_SET: {
-        double new_speed = *(double *)arg;
-        if (speed != new_speed)
-            set_playback_speed(mpctx, new_speed);
+        mpctx->opts->playback_speed = *(double *)arg;
+        update_playback_speed(mpctx);
         return M_PROPERTY_OK;
     }
     case M_PROPERTY_PRINT:
@@ -288,6 +287,13 @@ static int mp_property_playback_speed(void *ctx, struct m_property *prop,
         return M_PROPERTY_OK;
     }
     return mp_property_generic_option(mpctx, prop, action, arg);
+}
+
+static int mp_property_adjusted_playback_speed(void *ctx, struct m_property *prop,
+                                               int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    return m_property_double_ro(action, arg, mpctx->playback_speed);
 }
 
 /// filename with path (RO)
@@ -638,7 +644,7 @@ static int mp_property_playtime_remaining(void *ctx, struct m_property *prop,
     if (!time_remaining(mpctx, &remaining))
         return M_PROPERTY_UNAVAILABLE;
 
-    double speed = mpctx->opts->playback_speed;
+    double speed = mpctx->playback_speed;
     return property_time(action, arg, remaining / speed);
 }
 
@@ -3299,6 +3305,7 @@ static const struct m_property mp_properties[] = {
     {"loop", mp_property_generic_option},
     {"loop-file", mp_property_generic_option},
     {"speed", mp_property_playback_speed},
+    {"adjusted-speed", mp_property_adjusted_playback_speed},
     {"filename", mp_property_filename},
     {"stream-open-filename", mp_property_stream_open_filename},
     {"file-size", mp_property_file_size},

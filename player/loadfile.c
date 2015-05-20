@@ -1031,6 +1031,8 @@ static void play_current_file(struct MPContext *mpctx)
     mpctx->playing_msg_shown = false;
     mpctx->backstep_active = false;
     mpctx->max_frames = -1;
+    mpctx->playback_speed = opts->playback_speed;
+    mpctx->speed_correction = 1.0;
     mpctx->seek = (struct seek_params){ 0 };
 
     reset_playback_state(mpctx);
