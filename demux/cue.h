@@ -1,6 +1,4 @@
 /*
- * Cocoa OpenGL Backend
- *
  * This file is part of mpv.
  *
  * mpv is free software; you can redistribute it and/or modify
@@ -10,31 +8,34 @@
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef MPLAYER_COCOA_COMMON_H
-#define MPLAYER_COCOA_COMMON_H
+#ifndef MP_CUE_H_
+#define MP_CUE_H_
 
 #include <stdbool.h>
-#include <stdint.h>
-#include <OpenGL/OpenGL.h>
 
-struct vo;
-struct vo_cocoa_state;
+#include "misc/bstr.h"
 
-int vo_cocoa_init(struct vo *vo);
-void vo_cocoa_uninit(struct vo *vo);
+struct cue_file {
+    struct cue_track *tracks;
+    int num_tracks;
+};
 
-int vo_cocoa_config_window(struct vo *vo, uint32_t flags);
+struct cue_track {
+    double pregap_start;        // corresponds to INDEX 00
+    double start;               // corresponds to INDEX 01
+    struct bstr filename;
+    int source;
+    struct bstr title;
+};
 
-int vo_cocoa_control(struct vo *vo, int *events, int request, void *arg);
+bool mp_probe_cue(struct bstr data);
+struct cue_file *mp_parse_cue(struct bstr data);
 
-void vo_cocoa_swap_buffers(struct vo *vo);
-void vo_cocoa_set_opengl_ctx(struct vo *vo, CGLContextObj ctx);
-
-#endif /* MPLAYER_COCOA_COMMON_H */
+#endif

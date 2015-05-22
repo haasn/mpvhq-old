@@ -86,7 +86,7 @@ List of Input Commands
     disabling default bindings, without disabling all bindings with
     ``--no-input-default-bindings``.
 
-``seek <seconds> [relative|absolute|absolute-percent|exact|keyframes]``
+``seek <seconds> [relative|absolute|absolute-percent|relative-percent|exact|keyframes]``
     Change the playback position. By default, seeks by a relative amount of
     seconds.
 
@@ -98,6 +98,8 @@ List of Input Commands
         Seek to a given time.
     absolute-percent
         Seek to a given percent position.
+    relative-percent
+        Seek relative to current position in percent.
     keyframes
         Always restart playback at keyframe boundaries (fast).
     exact
@@ -245,6 +247,10 @@ List of Input Commands
     the index value index2 after moving if index1 was lower than index2,
     because index2 refers to the target entry, not the index the entry
     will have after moving.)
+
+``playlist_shuffle``
+    Shuffle the playlist. This is similar to what is done on start if the
+    ``--shuffle`` option is used.
 
 ``run "command" "arg1" "arg2" ...``
     Run the given command. Unlike in MPlayer/mplayer2 and earlier versions of
@@ -836,10 +842,13 @@ Property list
 ``stream-end``
     Raw end position in bytes in source stream.
 
-``length``
-    Length of the current file in seconds. If the length is unknown, the
+``duration``
+    Duration of the current file in seconds. If the duration is unknown, the
     property is unavailable. Note that the file duration is not always exactly
     known, so this is an estimate.
+
+    This replaces the ``length`` property, which was deprecated after the
+    mpv 0.9 release. (The semantics are the same.)
 
 ``avsync``
     Last A/V synchronization difference. Unavailable if audio or video is
@@ -1126,7 +1135,7 @@ Property list
     See ``--hr-seek``.
 
 ``volume`` (RW)
-    Current volume (0-100).
+    Current volume (see ``--volume`` for details).
 
 ``mute`` (RW)
     Current mute status (``yes``/``no``).
@@ -1134,18 +1143,47 @@ Property list
 ``audio-delay`` (RW)
     See ``--audio-delay``.
 
-``audio-format``
-    Audio format as string.
-
 ``audio-codec``
     Audio codec selected for decoding.
 
-``audio-samplerate``
-    Audio samplerate.
+``audio-codec-name``
+    Audio codec.
 
-``audio-channels``
-    Number of audio channels. The OSD value of this property is actually the
-    channel layout, while the raw value returns the number of channels only.
+``audio-params``
+    Audio format as output by the audio decoder.
+    This has a number of sub-properties:
+
+    ``audio-params/format``
+        The sample format as string. This uses the same names as used in other
+        places of mpv.
+
+    ``audio-params/samplerate``
+        Samplerate.
+
+    ``audio-params/channels``
+        The channel layout as a string. This is similar to what the
+        ``--audio-channels`` accepts.
+
+    ``audio-params/channel-count``
+        Number of audio channels. This is redundant to the ``channels`` field
+        described above.
+
+    When querying the property with the client API using ``MPV_FORMAT_NODE``,
+    or with Lua ``mp.get_property_native``, this will return a mpv_node with
+    the following contents:
+
+    ::
+
+        MPV_FORMAT_NODE_ARRAY
+            MPV_FORMAT_NODE_MAP (for each track)
+                "format"            MPV_FORMAT_STRING
+                "samplerate"        MPV_FORMAT_INT64
+                "channels"          MPV_FORMAT_STRING
+                "channel-count"     MPV_FORMAT_INT64
+
+``audio-out-params``
+    Same as ``audio-params``, but the format of the data written to the audio
+    API.
 
 ``aid`` (RW)
     Current audio track (similar to ``--aid``).
@@ -1782,7 +1820,6 @@ Property list
         For many complex types, this isn't very accurate.
 
     ``option-info/<name>/set-from-commandline``
-
         Return ``yes`` if the option was set from the mpv command line,
         ``no`` otherwise. What this is set to if the option is e.g. changed
         at runtime is left undefined (meaning it could change in the future).
@@ -1809,7 +1846,10 @@ Property Expansion
 ------------------
 
 All string arguments to input commands as well as certain options (like
-``--term-playing-msg``) are subject to property expansion.
+``--term-playing-msg``) are subject to property expansion. Note that property
+expansion does not work in places where e.g. numeric parameters are expected.
+(For example, the ``add`` command does not do property expansion. The ``set``
+command is an exception and not a general rule.)
 
 .. admonition:: Example for input.conf
 

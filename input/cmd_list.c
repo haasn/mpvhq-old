@@ -63,6 +63,7 @@ const struct mp_cmd_def mp_cmds[] = {
       OARG_FLAGS(4|0, ({"relative", 4|0}, {"-", 4|0},
                        {"absolute-percent", 4|1},
                        {"absolute", 4|2},
+                       {"relative-percent", 4|3},
                        {"keyframes", 32|8},
                        {"exact", 32|16})),
       // backwards compatibility only
@@ -89,6 +90,7 @@ const struct mp_cmd_def mp_cmds[] = {
       OARG_CHOICE(0, ({"weak", 0},
                       {"force", 1})),
   }},
+  { MP_CMD_PLAYLIST_SHUFFLE, "playlist_shuffle", },
   { MP_CMD_SUB_STEP, "sub_step", { ARG_INT }, .allow_auto_repeat = true },
   { MP_CMD_SUB_SEEK, "sub_seek", { ARG_INT }, .allow_auto_repeat = true },
   { MP_CMD_OSD, "osd", { OARG_INT(-1) } },

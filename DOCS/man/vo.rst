@@ -69,6 +69,12 @@ Available video output drivers are:
     ``no-colorkey``
         Disables color-keying.
 
+    ``buffers=<number>``
+        Number of image buffers to use for the internal ringbuffer (default: 2).
+        Increasing this will use more memory, but might help with the X server
+        not responding quickly enough if video FPS is close to or higher than
+        the display refresh rate.
+
 ``x11`` (X11 only)
     Shared memory video output driver without hardware acceleration that works
     whenever X11 is present.
@@ -596,10 +602,6 @@ Available video output drivers are:
         The slope of the sigmoid curve used for ``sigmoid-upscaling``, must
         be a float between 1.0 and 20.0. Defaults to 6.5 if not specified.
 
-    ``no-npot``
-        Force use of power-of-2 texture sizes. For debugging only.
-        Borders will be distorted due to filtering.
-
     ``glfinish``
         Call ``glFinish()`` before and after swapping buffers (default: disabled).
         Slower, but might help getting better results when doing framedropping.
@@ -638,12 +640,15 @@ Available video output drivers are:
             Cocoa/OS X
         win
             Win32/WGL
-        x11, x11es
-            X11/GLX (the ``es`` variant forces GLES)
+        x11
+            X11/GLX
         wayland
             Wayland/EGL
-        x11egl, x11egles
-            X11/EGL (the ``es`` variant forces GLES)
+        x11egl
+            X11/EGL
+
+    ``es``
+        Force or prefer GLES2/3 over desktop OpenGL, if supported.
 
     ``fbo-format=<fmt>``
         Selects the internal format of textures used for FBOs. The format can

@@ -742,7 +742,7 @@ Video
     You can get the list of allowed codecs with ``mpv --vd=help``. Remove the
     prefix, e.g. instead of ``lavc:h264`` use ``h264``.
 
-    By default this is set to ``h264,vc1,wmv3``. Note that the hardware
+    By default this is set to ``h264,vc1,wmv3,hevc``. Note that the hardware
     acceleration special codecs like ``h264_vdpau`` are not relevant anymore,
     and in fact have been removed from Libav in this form.
 
@@ -891,9 +891,16 @@ Audio
         ``--ad=help``
             List all available decoders.
 
-``--volume=<-1-100>``
-    Set the startup volume. A value of -1 (the default) will not change the
-    volume. See also ``--softvol``.
+``--volume=<value>``
+    Set the startup volume. 0 means silence, 100 means no volume reduction or
+    amplification. A value of -1 (the default) will not change the volume. See
+    also ``--softvol``.
+
+    .. note::
+
+        This was changed after the mpv 0.9 release. Before that, 100 actually
+        meant maximum volume. At the same time, the volume scale was made cubic,
+        so the old values won't match up with the new ones anyway.
 
 ``--audio-delay=<sec>``
     Audio delay in seconds (positive or negative float value). Positive values
@@ -1062,19 +1069,9 @@ Audio
     their start timestamps differ, and then video timing is gradually adjusted
     if necessary to reach correct synchronization later.
 
-``--softvol-max=<10.0-10000.0>``
-    Set the maximum amplification level in percent (default: 200). A value of
-    200 will allow you to adjust the volume up to a maximum of double the
-    current level. With values below 100 the initial volume (which is 100%)
-    will be above the maximum, which e.g. the OSD cannot display correctly.
-
-    .. admonition:: Note
-
-        The maximum value of ``--volume`` as well as the ``volume`` property
-        is always 100. Likewise, the volume OSD bar always goes from 0 to 100.
-        This means that with ``--softvol-max=200``, ``--volume=100`` sets
-        maximum amplification, i.e. amplify by 200%. The default volume (no
-        change in volume) will be ``50`` in this case.
+``--softvol-max=<100.0-1000.0>``
+    Set the maximum amplification level in percent (default: 130). A value of
+    130 will allow you to adjust the volume up to about double the normal level.
 
 ``--audio-file-auto=<no|exact|fuzzy|all>``, ``--no-audio-file-auto``
     Load additional audio files matching the video filename. The parameter
