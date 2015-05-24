@@ -240,6 +240,7 @@ typedef struct MPContext {
     double speed_correction;
     double audio_speed_correction;
     bool display_sync_active;
+    double timestamp_unrounding_error;
     // Timing error (in seconds) due to rounding on vsync boundaries
     double display_sync_error;
     // Last time speed was adjusted (in mp_time_us() units)

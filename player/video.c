@@ -220,6 +220,7 @@ void reset_video_state(struct MPContext *mpctx)
     mpctx->video_next_pts = MP_NOPTS_VALUE;
     mpctx->total_avsync_change = 0;
     mpctx->last_av_difference = 0;
+    mpctx->timestamp_unrounding_error = 0;
     mpctx->dropped_frames_total = 0;
     mpctx->dropped_frames = 0;
     mpctx->drop_message_shown = 0;
@@ -819,7 +820,8 @@ static double stabilize_frame_duration(struct MPContext *mpctx, double duration)
     }
 
     // It's not really possible to compute the actual, correct FPS, unless we
-    // e.g. consider a list of potentially correct values, detect cycles, etc.
+    // e.g. consider a list of potentially correct values, detect cycles, or
+    // use similar guessing methods.
     // Naively using the average between min and max should give a stable, but
     // still relatively close value.
     duration = (min + max) / 2;
@@ -936,15 +938,16 @@ void write_video(struct MPContext *mpctx, double endpts)
         diff = -1; // disable frame dropping and aspects of frame timing
 
     int64_t duration = -1;
+    double stable_diff = -1;
     double adjusted_duration = -1;
     if (diff >= 0) {
         double d = diff / opts->playback_speed;
         if (mpctx->time_frame < 0)
             d += mpctx->time_frame;
         duration = MPCLAMP(d, 0, 10) * 1e6;
-        adjusted_duration = stabilize_frame_duration(mpctx, diff);
-        if (adjusted_duration >= 0)
-            adjusted_duration /= opts->playback_speed;
+        stable_diff = stabilize_frame_duration(mpctx, diff);
+        if (stable_diff >= 0)
+            adjusted_duration = stable_diff / opts->playback_speed;
     }
     if (!mpctx->display_sync_active) {
         mpctx->speed_correction = 1.0;
@@ -960,6 +963,9 @@ void write_video(struct MPContext *mpctx, double endpts)
         (vo->driver->caps & VO_CAP_SYNC_DISPLAY) &&
         !using_spdif_passthrough(mpctx))
     {
+        if (!mpctx->display_sync_active)
+            mpctx->timestamp_unrounding_error = 0;
+
         double av_diff = mpctx->last_av_difference;
         if (fabs(av_diff) < 0.5)
             video_speed_correction = calc_best_speed(mpctx, vsync, adjusted_duration);
@@ -1050,6 +1056,15 @@ void write_video(struct MPContext *mpctx, double endpts)
         num_vsyncs += drop_repeat;
         if (drop_repeat < 0)
             vo_increment_drop_count(vo, 1);
+
+        mpctx->timestamp_unrounding_error += stable_diff - diff;
+
+        if (mpctx->timestamp_unrounding_error > FRAME_DURATION_TOLERANCE * 5) {
+            if (mpctx->timestamp_unrounding_error != INFINITY) {
+                MP_WARN(mpctx, "File has inaccurate framerate header field.\n");
+                mpctx->timestamp_unrounding_error = INFINITY;
+            }
+        }
     }
 
     assert(mpctx->num_next_frames >= 1);
