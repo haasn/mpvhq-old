@@ -794,6 +794,33 @@ static bool using_spdif_passthrough(struct MPContext *mpctx)
     return false;
 }
 
+// Attempt to stabilize frame duration from jittery timestamps. This is mostly
+// needed with semi-broken file formats which round timestamps to ms, or files
+// created from them.
+// We do this to make a stable decision how much to change video playback speed.
+// Otherwise calc_best_speed() could make a different decision every frame.
+static double fix_frame_duration(struct MPContext *mpctx, double duration)
+{
+    // Assume some formats round timestamps to ms.
+    double tolerance = 0.0011;
+
+    if (mpctx->d_video->fps > 0) {
+        // Look at the demuxer FPS, which implies a frame duration.
+        double demux_duration = 1.0 / mpctx->d_video->fps;
+        if (fabs(duration - demux_duration) < tolerance)
+            return demux_duration;
+    }
+
+    // Always picking the maximum of the average of the previous and the
+    // current frame duration as a cheap trick to get a stable value.
+    double avg = (mpctx->last_frame_duration + duration) / 2.0;
+    if (fabs(avg - duration) < 0.0011)
+        duration = MPMAX(duration, mpctx->last_frame_duration);
+    mpctx->last_frame_duration = duration;
+
+    return duration;
+}
+
 // Find a speed factor such that the display FPS is an integer multiple of the
 // effective video FPS. If this is not possible, try to do it for multiples,
 // which still leads to an improved end result.
@@ -904,6 +931,7 @@ void write_video(struct MPContext *mpctx, double endpts)
             d += mpctx->time_frame;
         duration = MPCLAMP(d, 0, 10) * 1e6;
     }
+    diff = fix_frame_duration(mpctx, diff);
 
     if (!mpctx->display_sync_active) {
         mpctx->speed_correction = 1.0;
@@ -918,17 +946,6 @@ void write_video(struct MPContext *mpctx, double endpts)
         (vo->driver->caps & VO_CAP_SYNC_DISPLAY) &&
         !using_spdif_passthrough(mpctx))
     {
-        // Attempt to stabilize jittery timestamps. Always picking the maximum
-        // of the average of the previous and the current frame duration is a
-        // cheap trick to get a stable value, which prevents re-deciding whether
-        // to use display sync or not (calc_best_speed() return).
-        // We assume jittery timestamps come from rounding to ms, thus 1.1 ms
-        // tolerance.
-        double avg = (mpctx->last_frame_duration + diff) / 2.0;
-        if (fabs(avg - diff) < 0.0011)
-            diff = MPMAX(diff, mpctx->last_frame_duration);
-        mpctx->last_frame_duration = diff;
-
         video_speed_correction = calc_best_speed(mpctx, vsync, diff);
         if (video_speed_correction > 0) {
             // If we are too far ahead/behind, attempt to drop/repeat
