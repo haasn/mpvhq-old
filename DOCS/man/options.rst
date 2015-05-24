@@ -3311,17 +3311,17 @@ Miscellaneous
     with ``--video-sync=display``, and otherwise doesn't happen.
 
 ``--video-sync-max-video-change=<value>``
-    Maximum speed difference that is applied to video with
-    ``--video-sync=display``. Display sync mode will be disabled if the
-    monitor and video refresh way do not match within the given range.
+    Maximum speed difference in percent that is applied to video with
+    ``--video-sync=display`` (default: 5). Display sync mode will be disabled
+    if the monitor and video refresh way do not match within the given range.
 
 ``--video-sync-max-audio-change=<value>``
-    Maximum *additional* speed difference that is applied to audio with
-    ``--video-sync=display``. This does not include the video speed change,
-    and merely controls how much audio speed can change in addition to it. Too
-    high values will cause "wobbling" audio as speed is periodically readjusted.
-    If the audio speed (within the given limits) can't compensate for A/V
-    desync, video frames are dropped or repeated.
+    Maximum *additional* speed difference in percent that is applied to audio
+    with ``--video-sync=display`` (default: 1). This does not include the video
+    speed change, and merely controls how much audio speed can change in
+    addition to it. Too high values will cause "wobbling" audio as speed is
+    periodically readjusted. If the audio speed (within the given limits) can't
+    compensate for A/V desync, video frames are dropped or repeated.
 
 ``--mf-fps=<value>``
     Framerate used when decoding from multiple PNG or JPEG files with ``mf://``

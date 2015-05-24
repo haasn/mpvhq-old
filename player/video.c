@@ -806,7 +806,7 @@ static double calc_best_speed(struct MPContext *mpctx, double vsync, double fram
     double ratio = frame / vsync;
     for (int factor = 1; factor <= 5; factor++) {
         double scale = ratio * factor / floor(ratio * factor + 0.5);
-        if (fabs(scale - 1) > opts->sync_max_video_change)
+        if (fabs(scale - 1) > opts->sync_max_video_change / 100)
             continue; // large deviation, skip
         return scale; // decent match found
     }
@@ -964,9 +964,8 @@ void write_video(struct MPContext *mpctx, double endpts)
                     // Generating squeeky/satan voices is not the point of this
                     // mode, and also negative speed is of course impossible. A
                     // desync too high will be handled by frame drop/repeat.
-                    audio_factor =
-                        MPCLAMP(audio_factor, 1.0 - opts->sync_max_audio_change,
-                                              1.0 + opts->sync_max_audio_change);
+                    double maxd = opts->sync_max_audio_change / 100;
+                    audio_factor = MPCLAMP(audio_factor, 1.0 - maxd, 1.0 + maxd);
                 }
                 mpctx->speed_correction = audio_factor * video_speed_correction;
                 mpctx->audio_speed_correction = audio_factor;
