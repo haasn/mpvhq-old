@@ -939,19 +939,20 @@ void write_video(struct MPContext *mpctx, double endpts)
     }
     bool display_timing = false;
 
-    double video_speed_correction = 1.0;
+    double video_speed_correction = -1.0;
     int drop_repeat = 0;
     double vsync = vo_get_vsync_interval(vo) / 1e6;
     if (vsync > 0 && diff > 0 && diff <= 0.05 && opts->video_sync_mode == 1 &&
         (vo->driver->caps & VO_CAP_SYNC_DISPLAY) &&
         !using_spdif_passthrough(mpctx))
     {
-        video_speed_correction = calc_best_speed(mpctx, vsync, diff);
+        double av_diff = mpctx->last_av_difference;
+        if (fabs(av_diff) < 0.5)
+            video_speed_correction = calc_best_speed(mpctx, vsync, diff);
         if (video_speed_correction > 0) {
             // If we are too far ahead/behind, attempt to drop/repeat
             // frames. In particular, don't attempt to change speed for
             // them.
-            double av_diff = mpctx->last_av_difference;
             if (av_diff != MP_NOPTS_VALUE && (opts->frame_dropping & 1)) {
                 drop_repeat = -av_diff / vsync; // round towards 0
                 av_diff -= drop_repeat * vsync;
