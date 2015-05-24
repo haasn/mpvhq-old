@@ -794,29 +794,42 @@ static bool using_spdif_passthrough(struct MPContext *mpctx)
     return false;
 }
 
+// Comes from the assumption that some formats round timestamps to ms.
+#define FRAME_DURATION_TOLERANCE 0.0011
+
 // Attempt to stabilize frame duration from jittery timestamps. This is mostly
 // needed with semi-broken file formats which round timestamps to ms, or files
 // created from them.
 // We do this to make a stable decision how much to change video playback speed.
 // Otherwise calc_best_speed() could make a different decision every frame.
-static double fix_frame_duration(struct MPContext *mpctx, double duration)
+// Return -1 if the frame duration seems to be unstable.
+static double stabilize_frame_duration(struct MPContext *mpctx, double duration)
 {
-    // Assume some formats round timestamps to ms.
-    double tolerance = 0.0011;
+    double fd[6];
+    int num = get_past_frame_durations(mpctx, fd, MP_ARRAY_SIZE(fd));
 
-    if (mpctx->d_video->fps > 0) {
-        // Look at the demuxer FPS, which implies a frame duration.
-        double demux_duration = 1.0 / mpctx->d_video->fps;
-        if (fabs(duration - demux_duration) < tolerance)
-            return demux_duration;
+    double min = duration;
+    double max = duration;
+    for (int n = 0; n < num; n++) {
+        double cur = fd[n];
+        if (fabs(cur - duration) > FRAME_DURATION_TOLERANCE)
+            return -1;
+        min = MPMIN(min, cur);
+        max = MPMAX(max, cur);
     }
 
-    // Always picking the maximum of the average of the previous and the
-    // current frame duration as a cheap trick to get a stable value.
-    double avg = (mpctx->last_frame_duration + duration) / 2.0;
-    if (fabs(avg - duration) < 0.0011)
-        duration = MPMAX(duration, mpctx->last_frame_duration);
-    mpctx->last_frame_duration = duration;
+    // It's not really possible to compute the actual, correct FPS, unless we
+    // e.g. consider a list of potentially correct values, detect cycles, etc.
+    // Naively using the average between min and max should give a stable, but
+    // still relatively close value.
+    duration = (min + max) / 2;
+
+    // Except for the demuxer reported FPS, which might be the correct one.
+    if (mpctx->d_video->fps > 0) {
+        double demux_duration = 1.0 / mpctx->d_video->fps;
+        if (fabs(duration - demux_duration) <= FRAME_DURATION_TOLERANCE)
+            duration = demux_duration;
+    }
 
     return duration;
 }
@@ -919,20 +932,20 @@ void write_video(struct MPContext *mpctx, double endpts)
         diff = vpts1 - vpts0;
     if (diff < 0 && mpctx->d_video->fps > 0)
         diff = 1.0 / mpctx->d_video->fps; // fallback to demuxer-reported fps
-    if (diff > 0) // expected A/V sync correction is ignored
-        diff /= opts->playback_speed;
     if (opts->untimed || vo->driver->untimed)
         diff = -1; // disable frame dropping and aspects of frame timing
 
     int64_t duration = -1;
+    double adjusted_duration = -1;
     if (diff >= 0) {
-        double d = diff;
+        double d = diff / opts->playback_speed;
         if (mpctx->time_frame < 0)
             d += mpctx->time_frame;
         duration = MPCLAMP(d, 0, 10) * 1e6;
+        adjusted_duration = stabilize_frame_duration(mpctx, diff);
+        if (adjusted_duration >= 0)
+            adjusted_duration /= opts->playback_speed;
     }
-    diff = fix_frame_duration(mpctx, diff);
-
     if (!mpctx->display_sync_active) {
         mpctx->speed_correction = 1.0;
         mpctx->display_sync_error = 0.0;
@@ -942,13 +955,14 @@ void write_video(struct MPContext *mpctx, double endpts)
     double video_speed_correction = -1.0;
     int drop_repeat = 0;
     double vsync = vo_get_vsync_interval(vo) / 1e6;
-    if (vsync > 0 && diff > 0 && diff <= 0.05 && opts->video_sync_mode == 1 &&
+    if (vsync > 0 && adjusted_duration > 0 && adjusted_duration <= 0.05 &&
+        opts->video_sync_mode == 1 &&
         (vo->driver->caps & VO_CAP_SYNC_DISPLAY) &&
         !using_spdif_passthrough(mpctx))
     {
         double av_diff = mpctx->last_av_difference;
         if (fabs(av_diff) < 0.5)
-            video_speed_correction = calc_best_speed(mpctx, vsync, diff);
+            video_speed_correction = calc_best_speed(mpctx, vsync, adjusted_duration);
         if (video_speed_correction > 0) {
             // If we are too far ahead/behind, attempt to drop/repeat
             // frames. In particular, don't attempt to change speed for
@@ -1021,13 +1035,14 @@ void write_video(struct MPContext *mpctx, double endpts)
         // can be e.g. 2 for 30hz on a 60hz display. It can also be 0 if the
         // video framerate is higher than the display framerate.
         // We use the speed-adjusted (i.e. real) frame duration for this.
-        double frame_duration = diff / video_speed_correction;
+        double frame_duration = adjusted_duration / video_speed_correction;
         double ratio = frame_duration / vsync;
         num_vsyncs = MPMAX(floor(ratio + mpctx->display_sync_error + 0.5), 0);
         mpctx->display_sync_error += frame_duration - num_vsyncs * vsync;
         vsync_offset = mpctx->display_sync_error * 1e6;
         //MP_WARN(mpctx, "vsyncs s=%d d=%f v=%f r=%f e=%.20f (%f)\n", num_vsyncs,
-        //        diff, vsync, ratio, mpctx->display_sync_error, mpctx->display_sync_error / vsync);
+        //        adjusted_duration, vsync, ratio, mpctx->display_sync_error,
+        //        mpctx->display_sync_error / vsync);
         // We can only drop all frames at most. We can repeast much more frames,
         // but we still limit it to 10 times the original frames to avoid that
         // corner cases or exceptional sitations cause too much havoc.

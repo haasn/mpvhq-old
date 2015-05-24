@@ -239,7 +239,6 @@ typedef struct MPContext {
     // Additional speed factor chosen by display sync code.
     double speed_correction;
     double audio_speed_correction;
-    double last_frame_duration;
     bool display_sync_active;
     // Timing error (in seconds) due to rounding on vsync boundaries
     double display_sync_error;

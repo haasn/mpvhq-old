@@ -1028,7 +1028,6 @@ static void play_current_file(struct MPContext *mpctx)
     mpctx->speed_correction = 1.0;
     mpctx->display_sync_error = 0.0;
     mpctx->last_display_sync_adjustment = 0;
-    mpctx->last_frame_duration = 0;
     mpctx->display_sync_active = false;
     mpctx->seek = (struct seek_params){ 0 };
 
