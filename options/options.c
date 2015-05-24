@@ -510,7 +510,7 @@ const m_option_t mp_opts[] = {
     OPT_CHOICE("video-sync", video_sync_mode, 0,
                ({"default", 0}, {"display", 1})),
     OPT_DOUBLE("video-sync-adjustment-period", sync_adjustment_period,
-               M_OPT_MIN, .min = 0.1),
+               M_OPT_MIN, .min = 0),
     OPT_DOUBLE("video-sync-max-video-change", sync_max_video_change,
                M_OPT_MIN, .min = 0),
     OPT_DOUBLE("video-sync-max-audio-change", sync_max_audio_change,
