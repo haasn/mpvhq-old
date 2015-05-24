@@ -1011,7 +1011,10 @@ void write_video(struct MPContext *mpctx, double endpts)
         vsync_offset = mpctx->display_sync_error * 1e6;
         //MP_WARN(mpctx, "vsyncs s=%d d=%f v=%f r=%f e=%.20f (%f)\n", num_vsyncs,
         //        diff, vsync, ratio, mpctx->display_sync_error, mpctx->display_sync_error / vsync);
-        drop_repeat = MPCLAMP(drop_repeat, -num_vsyncs, num_vsyncs);
+        // We can only drop all frames at most. We can repeast much more frames,
+        // but we still limit it to 10 times the original frames to avoid that
+        // corner cases or exceptional sitations cause too much havoc.
+        drop_repeat = MPCLAMP(drop_repeat, -num_vsyncs, num_vsyncs * 10);
         num_vsyncs += drop_repeat;
         if (drop_repeat < 0)
             vo_increment_drop_count(vo, 1);
