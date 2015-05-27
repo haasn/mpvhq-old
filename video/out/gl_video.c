@@ -27,6 +27,7 @@
 #include <assert.h>
 
 #include <libavutil/common.h>
+#include <libavutil/lfg.h>
 
 #include "gl_video.h"
 
@@ -218,6 +219,7 @@ struct gl_video {
 
     int frames_uploaded;
     int frames_rendered;
+    AVLFG lfg;
 
     // Cached because computing it can take relatively long
     int last_dither_matrix_size;
@@ -738,6 +740,8 @@ static void init_video(struct gl_video *p)
         eq_caps |= MP_CSP_EQ_CAPS_BRIGHTNESS;
     p->video_eq.capabilities = eq_caps;
 
+    av_lfg_init(&p->lfg, 1);
+
     debug_check_gl(p, "before video texture creation");
 
     struct video_image *vimg = &p->image;
@@ -924,7 +928,7 @@ static void uninit_scaler(struct gl_video *p, struct scaler *scaler)
 static void load_shader(struct gl_video *p, const char *body)
 {
     gl_sc_hadd(p->sc, body);
-    gl_sc_uniform_f(p->sc, "random", drand48());
+    gl_sc_uniform_f(p->sc, "random", (double)av_lfg_get(&p->lfg) / UINT32_MAX);
     gl_sc_uniform_f(p->sc, "frame", p->frames_uploaded);
     gl_sc_uniform_vec2(p->sc, "image_size", (GLfloat[]){p->image_w, p->image_h});
 }
@@ -2028,7 +2032,9 @@ static void pass_render_frame(struct gl_video *p)
 
     if (apply_shaders(p, p->opts.pre_shaders, &p->pre_fbo[0], 0,
                       p->image_w, p->image_h))
+    {
         p->use_indirect = true;
+    }
 
     pass_scale_main(p);
 
