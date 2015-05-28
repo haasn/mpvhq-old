@@ -20,6 +20,10 @@ Interface changes
 ::
 
  --- mpv 0.10.0 will be released ---
+    - remove "get_property" command
+    - remove --slave-broken
+    - add vo opengl custom shader suboptions (source-shader, scale-shader,
+      pre-shaders, post-shaders)
     - completely change how the hwdec properties work:
         - "hwdec" now reflects the --hwdec option
         - "hwdec-detected" does partially what the old "hwdec" property did
