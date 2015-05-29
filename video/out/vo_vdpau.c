@@ -828,13 +828,15 @@ static void draw_image(struct vo *vo, struct mp_image *mpi)
 
     check_preemption(vo);
 
-    struct mp_image *vdp_mpi = mp_vdpau_upload_video_surface(vc->mpvdp, mpi);
-    if (!vdp_mpi)
-        MP_ERR(vo, "Could not upload image.\n");
-    talloc_free(mpi);
+    if (mpi) {
+        struct mp_image *vdp_mpi = mp_vdpau_upload_video_surface(vc->mpvdp, mpi);
+        if (!vdp_mpi)
+            MP_ERR(vo, "Could not upload image.\n");
+        talloc_free(mpi);
 
-    talloc_free(vc->current_image);
-    vc->current_image = vdp_mpi;
+        talloc_free(vc->current_image);
+        vc->current_image = vdp_mpi;
+    }
 
     if (status_ok(vo))
         video_to_output_surface(vo);
@@ -1076,7 +1078,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
 const struct vo_driver video_out_vdpau = {
     .description = "VDPAU with X11",
     .name = "vdpau",
-    .caps = VO_CAP_FRAMEDROP,
+    .caps = VO_CAP_FRAMEDROP | VO_CAP_SYNC_DISPLAY,
     .preinit = preinit,
     .query_format = query_format,
     .reconfig = reconfig,
