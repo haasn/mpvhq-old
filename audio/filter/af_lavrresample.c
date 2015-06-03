@@ -78,7 +78,6 @@ struct af_resample {
     int allow_detach;
     char **avopts;
     double playback_speed;
-    struct mp_audio *pending;
     bool avrctx_ok;
     struct AVAudioResampleContext *avrctx;
     struct mp_audio avrctx_fmt; // output format of avrctx
@@ -100,9 +99,9 @@ static void drop_all_output(struct af_resample *s)
 {
     while (avresample_read(s->avrctx, NULL, 1000) > 0) {}
 }
-static int get_drain_samples(struct af_resample *s)
+static int get_out_samples(struct af_resample *s, int in_samples)
 {
-    return avresample_get_out_samples(s->avrctx, 0);
+    return avresample_get_out_samples(s->avrctx, in_samples);
 }
 #else
 static int get_delay(struct af_resample *s)
@@ -113,9 +112,10 @@ static void drop_all_output(struct af_resample *s)
 {
     while (swr_drop_output(s->avrctx, 1000) > 0) {}
 }
-static int get_drain_samples(struct af_resample *s)
+static int get_out_samples(struct af_resample *s, int in_samples)
 {
-    return 4096; // libswscale does not have this
+    return av_rescale_rnd(get_delay(s) + in_samples,
+                          s->ctx.out_rate, s->ctx.in_rate, AV_ROUND_UP);
 }
 #endif
 
@@ -199,9 +199,6 @@ static int configure_lavrr(struct af_instance *af, struct mp_audio *in,
 
     avresample_close(s->avrctx);
     avresample_close(s->avrctx_out);
-
-    talloc_free(s->pending);
-    s->pending = NULL;
 
     s->ctx.out_rate    = out->rate;
     s->ctx.in_rate_af  = in->rate;
@@ -363,17 +360,9 @@ static int control(struct af_instance *af, int cmd, void *arg)
         if (new_rate != s->ctx.in_rate && s->avrctx_ok && af->fmt_out.format) {
             // Before reconfiguring, drain the audio that is still buffered
             // in the resampler.
-            struct mp_audio *pending = talloc_zero(NULL, struct mp_audio);
-            mp_audio_copy_config(pending, &af->fmt_out);
-            pending->samples = get_drain_samples(s);
-            if (pending->samples > 0) {
-                mp_audio_realloc_min(pending, pending->samples);
-                int r = resample_frame(s->avrctx, pending, NULL);
-                pending->samples = MPMAX(r, 0);
-            }
+            af->filter_frame(af, NULL);
             // Reinitialize resampler.
             configure_lavrr(af, &af->fmt_in, &af->fmt_out);
-            s->pending = pending;
         }
         return AF_OK;
     }
@@ -393,7 +382,6 @@ static void uninit(struct af_instance *af)
     if (s->avrctx_out)
         avresample_close(s->avrctx_out);
     avresample_free(&s->avrctx_out);
-    talloc_free(s->pending);
 }
 
 static void reorder_planes(struct mp_audio *mpa, int *reorder,
@@ -418,18 +406,7 @@ static int filter(struct af_instance *af, struct mp_audio *in)
 {
     struct af_resample *s = af->priv;
 
-    if (s->pending) {
-        if (s->pending->samples) {
-            af_add_output_frame(af, s->pending);
-        } else {
-            talloc_free(s->pending);
-        }
-        s->pending = NULL;
-    }
-
-    int samples = avresample_available(s->avrctx) +
-        av_rescale_rnd(get_delay(s) + (in ? in->samples : 0),
-                       s->ctx.out_rate, s->ctx.in_rate, AV_ROUND_UP);
+    int samples = get_out_samples(s, in ? in->samples : 0);
 
     struct mp_audio out_format = s->avrctx_fmt;
     struct mp_audio *out = mp_audio_pool_get(af->out_pool, &out_format, samples);

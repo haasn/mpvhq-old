@@ -19,6 +19,7 @@ typedef struct lavc_ctx {
     int best_csp;
     enum AVDiscard skip_frame;
     const char *software_fallback_decoder;
+    bool hwdec_failed;
 
     // From VO
     struct mp_hwdec_info *hwdec_info;
@@ -30,6 +31,8 @@ typedef struct lavc_ctx {
     int hwdec_w;
     int hwdec_h;
     int hwdec_profile;
+
+    bool hwdec_request_reinit;
 } vd_ffmpeg_ctx;
 
 struct vd_lavc_hwdec {
