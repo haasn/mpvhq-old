@@ -1799,12 +1799,14 @@ static int property_switch_track(struct m_property *prop, int action, void *arg,
         mp_switch_track_n(mpctx, order, type,
             track_next(mpctx, order, type, sarg->inc >= 0 ? +1 : -1, track),
             FLAG_MARK_SELECTION);
+        print_track_list(mpctx, "Track switched:");
         return M_PROPERTY_OK;
     }
     case M_PROPERTY_SET:
         if (mpctx->playback_initialized) {
             track = mp_track_by_tid(mpctx, type, *(int *)arg);
             mp_switch_track_n(mpctx, order, type, track, FLAG_MARK_SELECTION);
+            print_track_list(mpctx, "Track switched:");
         } else {
             mpctx->opts->stream_id[order][type] = *(int *)arg;
         }
@@ -1839,6 +1841,7 @@ static int property_switch_track_ff(void *ctx, struct m_property *prop,
             if (!track && id >= 0)
                 return M_PROPERTY_ERROR;
             mp_switch_track_n(mpctx, 0, type, track, 0);
+            print_track_list(mpctx, "Track switched:");
         } else {
             mpctx->opts->stream_id_ff[type] = *(int *)arg;
         }
@@ -1992,6 +1995,7 @@ static int mp_property_program(void *ctx, struct m_property *prop,
                 find_track_by_demuxer_id(mpctx, STREAM_AUDIO, prog.aid), 0);
         mp_switch_track(mpctx, STREAM_SUB,
                 find_track_by_demuxer_id(mpctx, STREAM_VIDEO, prog.sid), 0);
+        print_track_list(mpctx, "Program switched:");
         return M_PROPERTY_OK;
     case M_PROPERTY_GET_TYPE:
         *(struct m_option *)arg = (struct m_option){
@@ -4547,8 +4551,7 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
             return -1;
         int type = cmd->id == MP_CMD_SUB_ADD ? STREAM_SUB : STREAM_AUDIO;
         if (cmd->args[1].v.i == 2) {
-            struct track *t = find_track_with_url(mpctx, type,
-                                                    cmd->args[0].v.s);
+            struct track *t = find_track_with_url(mpctx, type, cmd->args[0].v.s);
             if (t) {
                 mp_switch_track(mpctx, t->type, t, FLAG_MARK_SELECTION);
                 return 0;
@@ -4568,7 +4571,8 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
         char *lang = cmd->args[3].v.s;
         if (lang && lang[0])
             t->lang = talloc_strdup(t, lang);
-        print_track_list(mpctx);
+        if (mpctx->playback_initialized)
+            print_track_list(mpctx, "Track added:");
         break;
     }
 
@@ -4579,7 +4583,8 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
         if (!t)
             return -1;
         mp_remove_track(mpctx, t);
-        print_track_list(mpctx);
+        if (mpctx->playback_initialized)
+            print_track_list(mpctx, "Track removed:");
         break;
     }
 
@@ -4596,7 +4601,7 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
         }
         if (nt) {
             mp_switch_track(mpctx, nt->type, nt, 0);
-            print_track_list(mpctx);
+            print_track_list(mpctx, "Reloaded:");
             return 0;
         }
         return -1;
@@ -4615,7 +4620,8 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
             if (s && s->is_external)
                 mp_switch_track(mpctx, STREAM_SUB, s, 0);
 
-            print_track_list(mpctx);
+            if (mpctx->playback_initialized)
+                print_track_list(mpctx, "Track list:\n");
         }
         break;
     }
