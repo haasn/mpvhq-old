@@ -235,10 +235,6 @@ iconv support use --disable-iconv.",
         'desc': 'fchmod()',
         'func': check_statement('sys/stat.h', 'fchmod(0, 0)'),
     }, {
-        'name': 'rand48',
-        'desc': 'SVID random number generators',
-        'func': check_statement('stdlib.h', 'drand48()'),
-    }, {
         'name': 'vt.h',
         'desc': 'vt.h',
         'func': check_statement(['sys/vt.h', 'sys/ioctl.h'],

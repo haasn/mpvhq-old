@@ -31,8 +31,6 @@
 
 #include "gl_video.h"
 
-#include "osdep/rand48.h"
-
 #include "misc/bstr.h"
 #include "gl_common.h"
 #include "gl_utils.h"
