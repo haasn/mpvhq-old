@@ -457,7 +457,7 @@ Program Behavior
     (Default: ``best``)
 
 ``--ytdl-raw-options=<key>=<value>[,<key>=<value>[,...]]``
-    Pass arbitraty options to youtube-dl. Parameter and argument should be
+    Pass arbitrary options to youtube-dl. Parameter and argument should be
     passed as a key-value pair. Options without argument must include ``=``.
 
     There is no sanity checking so it's possible to break things (i.e.
@@ -528,7 +528,7 @@ Video
         Old, decoder-based framedrop mode. (This is the same as ``--framedrop=yes``
         in mpv 0.5.x and before.) This tells the decoder to skip frames (unless
         they are needed to decode future frames). May help with slow systems,
-        but can produce unwatchably choppy output, or even freeze the display
+        but can produce unwatchable choppy output, or even freeze the display
         completely. Not recommended.
         The ``--vd-lavc-framedrop`` option controls what frames to drop.
     <decoder+vo>
@@ -847,7 +847,7 @@ Audio
     Note that many AOs have a ``device`` sub-option, which overrides the
     device selection of this option (but not the audio output selection).
     Likewise, forcing an AO with ``--ao`` will override the audio output
-    selection of ``--audio-device`` (but not the device selecton).
+    selection of ``--audio-device`` (but not the device selection).
 
     Currently not implemented for most AOs.
 
@@ -863,6 +863,25 @@ Audio
     The option variants ``--af-add``, ``--af-pre``, ``--af-del`` and
     ``--af-clr`` exist to modify a previously specified list, but you
     should not need these for typical use.
+
+``--audio-spdif=<codecs>``
+    List of codecs for which compressed audio passthrough should be used. This
+    works for both classic S/PDIF and HDMI.
+
+    Possible codecs are ``ac3``, ``dts``, ``dts-hd``. Multiple codecs can be
+    specified by separating them with ``,``. ``dts`` refers to low bitrate DTS
+    core, while ``dts-hd`` refers to DTS MA (receiver and OS support varies).
+    You should only use either ``dts`` or ``dts-hd`` (if both are specified,
+    and ``dts`` comes first, only ``dts`` will be used).
+
+    In general, all codecs in the ``spdif`` family listed with ``--ad=help``
+    are supported in theory.
+
+    .. admonition:: Warning
+
+        There is not much reason to use this. HDMI supports uncompressed
+        multichannel PCM, and mpv supports lossless DTS-HD decoding via
+        FFmpeg's libdcadec wrapper.
 
 ``--ad=<[+|-]family1:(*|decoder1),[+|-]family2:(*|decoder2),...[-]>``
     Specify a priority list of audio decoders to be used, according to their
@@ -890,6 +909,11 @@ Audio
 
         ``--ad=help``
             List all available decoders.
+
+    .. admonition:: Warning
+
+        Enabling compressed audio passthrough (AC3 and DTS via SPDIF/HDMI) with
+        this option is deprecated. Use ``--audio-spdif`` instead.
 
 ``--volume=<value>``
     Set the startup volume. 0 means silence, 100 means no volume reduction or
@@ -962,17 +986,12 @@ Audio
     welcome. A full list of AVOptions can be found in the FFmpeg manual.
 
 ``--ad-spdif-dtshd=<yes|no>``, ``--dtshd``, ``--no-dtshd``
-    When using DTS pass-through, output any DTS-HD track as-is.
-    With ``ad-spdif-dtshd=no`` (the default), only the DTS Core parts will be
-    output.
+    If DTS is passed through, use DTS-HD.
 
-    DTS-HD tracks can be sent over HDMI but not over the original
-    coax/TOSLINK S/PDIF system.
+    .. admonition:: Warning
 
-    Some receivers don't accept DTS core-only when ``--ad-spdif-dtshd=yes`` is
-    used, even though they accept DTS-HD.
-
-    ``--dtshd`` and ``--no-dtshd`` are deprecated aliases.
+        This and enabling passthrough via ``--ad`` are deprecated in favor of
+        using ``--audio-spdif=dts-hd``.
 
 ``--audio-channels=<number|layout>``
     Request a channel layout for audio output (default: auto). This  will ask
@@ -1146,7 +1165,7 @@ Subtitles
     the top of the screen) alongside the normal subtitle, and provides a way
     to render two subtitles at once.
 
-    there are some caveats associated with this feature. For example, bitmap
+    There are some caveats associated with this feature. For example, bitmap
     subtitles will always be rendered in their usual position, so selecting a
     bitmap subtitle as secondary subtitle will result in overlapping subtitles.
     Secondary subtitles are never shown on the terminal if video is disabled.
@@ -1861,7 +1880,7 @@ Window
     ``intptr_t``. mpv will create its own window, and set the wid window as
     parent, like with X11.
 
-    On OSX/Cocoa. the ID is interpreted as ``NSView*``. Pass it as value cast
+    On OSX/Cocoa, the ID is interpreted as ``NSView*``. Pass it as value cast
     to ``intptr_t``. mpv will creates its own sub-view. Because OSX does not
     support window embedding of foreign processes, this works only with libmpv,
     and will crash when used from the command line.
@@ -1955,7 +1974,7 @@ Disc Devices
     (Never) accept imperfect data reconstruction.
 
 ``--cdda-cdtext=<yes|no>``
-    Print CD text. This is disabled by default, because it ruins perfomance
+    Print CD text. This is disabled by default, because it ruins performance
     with CD-ROM drives for unknown reasons.
 
 ``--dvd-speed=<speed>``
@@ -2086,7 +2105,7 @@ Demuxer
     seeks only.
 
     You can use the ``--demuxer-mkv-subtitle-preroll-secs`` option to specify
-    how mach data the demuxer should pre-read at most in order to find subtitle
+    how much data the demuxer should pre-read at most in order to find subtitle
     packets that may overlap. Setting this to 0 will effectively disable this
     preroll mechanism. Setting a very large value can make seeking very slow,
     and an extremely large value would completely reread the entire file from
@@ -3337,7 +3356,7 @@ Miscellaneous
     you should not need to change this option.
 
     :decoder: Use decoder reordering functionality. Unlike in classic MPlayer
-              and mplayer2, this includes a dTS fallback. (Default.)
+              and mplayer2, this includes a DTS fallback. (Default.)
     :sort:    Maintain a buffer of unused pts values and use the lowest value
               for the frame.
     :auto:    Try to pick a working mode from the ones above automatically.

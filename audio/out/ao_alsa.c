@@ -204,14 +204,9 @@ alsa_error:
 }
 
 static const int mp_to_alsa_format[][2] = {
-    {AF_FORMAT_S8,          SND_PCM_FORMAT_S8},
     {AF_FORMAT_U8,          SND_PCM_FORMAT_U8},
-    {AF_FORMAT_U16,         SND_PCM_FORMAT_U16},
     {AF_FORMAT_S16,         SND_PCM_FORMAT_S16},
-    {AF_FORMAT_U32,         SND_PCM_FORMAT_U32},
     {AF_FORMAT_S32,         SND_PCM_FORMAT_S32},
-    {AF_FORMAT_U24,
-            MP_SELECT_LE_BE(SND_PCM_FORMAT_U24_3LE, SND_PCM_FORMAT_U24_3BE)},
     {AF_FORMAT_S24,
             MP_SELECT_LE_BE(SND_PCM_FORMAT_S24_3LE, SND_PCM_FORMAT_S24_3BE)},
     {AF_FORMAT_FLOAT,       SND_PCM_FORMAT_FLOAT},
@@ -251,6 +246,8 @@ static const int alsa_to_mp_channels[][2] = {
     {SND_CHMAP_TRL,     MP_SP(TBL)},
     {SND_CHMAP_TRR,     MP_SP(TBR)},
     {SND_CHMAP_TRC,     MP_SP(TBC)},
+    {SND_CHMAP_RRC,     MP_SP(SDR)},
+    {SND_CHMAP_RLC,     MP_SP(SDL)},
     {SND_CHMAP_MONO,    MP_SP(FC)},
     {SND_CHMAP_NA,      MP_SPEAKER_ID_NA},
     {SND_CHMAP_LAST,    MP_SPEAKER_ID_COUNT}
@@ -304,6 +301,8 @@ static bool query_chmaps(struct ao *ao, struct mp_chmap *chmap)
         mp_chmap_from_alsa(&entry, &maps[i]->map);
 
         if (mp_chmap_is_valid(&entry)) {
+            if (maps[i]->type == SND_CHMAP_TYPE_VAR)
+                mp_chmap_reorder_norm(&entry);
             MP_VERBOSE(ao, "Got supported channel map: %s (type %s)\n",
                        mp_chmap_to_str(&entry),
                        snd_pcm_chmap_type_name(maps[i]->type));
@@ -521,8 +520,8 @@ static int init_device(struct ao *ao, bool second_try)
         mp_chmap_from_channels_alsa(&ao->channels, num_channels);
         if (!mp_chmap_is_valid(&ao->channels))
             mp_chmap_from_channels(&ao->channels, 2);
-        MP_ERR(ao, "Couldn't get requested number of channels (%d), fallback "
-               "to %s.\n", req, mp_chmap_to_str(&ao->channels));
+        MP_ERR(ao, "Asked for %d channels, got %d - fallback to %s.\n", req,
+               num_channels, mp_chmap_to_str(&ao->channels));
     }
 
     // Some ALSA drivers have broken delay reporting, so disable the ALSA
@@ -606,17 +605,18 @@ static int init_device(struct ao *ao, bool second_try)
 
             if (mp_chmap_is_valid(&without_na) &&
                 !mp_chmap_equals(&without_na, &chmap) &&
+                !mp_chmap_equals(&chmap, &ao->channels) &&
                 !second_try)
             {
                 // Sometimes, ALSA will advertise certain chmaps, but it's not
                 // possible to set them. This can happen with dmix: as of
                 // alsa 1.0.28, dmix can do stereo only, but advertises the
                 // surround chmaps of the underlying device. In this case,
-                // requesting e.g. 5.1 will fail, but it will still allow
-                // setting 6 channels. Then it will return something like
+                // e.g. setting 6 channels will succeed, but requesting  5.1
+                // afterwards will fail. Then it will return something like
                 // "FL FR NA NA NA NA" as channel map. This means we would
                 // have to pad stereo output to 6 channels with silence, which
-                // is way too complicated in the general case. You can't change
+                // would require lots of extra processing. You can't change
                 // the number of channels to 2 either, because the hw params
                 // are already set! So just fuck it and reopen the device with
                 // the chmap "cleaned out" of NA entries.

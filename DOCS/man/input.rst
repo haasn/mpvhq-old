@@ -395,6 +395,23 @@ List of Input Commands
     <double>
         The mouse event represents double-click.
 
+``keypress <key_name>``
+    Send a key event through mpv's input handler, triggering whatever
+    behavior is configured to that key. ``key_name`` uses the ``input.conf``
+    naming scheme for keys and modifiers. Useful for the client API: key events
+    can be sent to libmpv to handle internally.
+
+``keydown <key_name>``
+    Similar to ``keypress``, but sets the ``KEYDOWN`` flag so that if the key is
+    bound to a repeatable command, it will be run repeatedly with mpv's key
+    repeat timing until the ``keyup`` command is called.
+
+``keyup [<key_name>]``
+    Set the ``KEYUP`` flag, stopping any repeated behavior that had been
+    triggered. ``key_name`` is optional. If ``key_name`` is not given or is an
+    empty string, ``KEYUP`` will be set on all keys. Otherwise, ``KEYUP`` will
+    only be set on the key specified by ``key_name``.
+
 ``audio-add "<file>" [<flags> [<title> [<lang>]]]``
     Load the given audio file. See ``sub-add`` command.
 
@@ -885,7 +902,7 @@ Property list
     always exactly known, so this is an estimate.
 
 ``playtime-remaining``
-    ``time-remaining`` scaled by the the current ``speed``.
+    ``time-remaining`` scaled by the current ``speed``.
 
 ``playback-time``
     Return the playback time, which is the time difference between start PTS and current PTS.
@@ -1101,7 +1118,7 @@ Property list
 
 ``demuxer-cache-time``
     Approximate time of video buffered in the demuxer, in seconds. Same as
-    ``demuxer-cache-duration`` but returns the last timestamp of bufferred
+    ``demuxer-cache-duration`` but returns the last timestamp of buffered
     data in demuxer.
 
 ``demuxer-cache-idle``
@@ -1194,7 +1211,7 @@ Property list
 ``balance`` (RW)
     Audio channel balance. (The implementation of this feature is rather odd.
     It doesn't change the volumes of each channel, but instead sets up a pan
-    matrix to mix the the left and right channels.)
+    matrix to mix the left and right channels.)
 
 ``fullscreen`` (RW)
     See ``--fullscreen``.

@@ -70,6 +70,7 @@ static const char *const std_layout_names[][2] = {
     {"quad",            "fl-fr-bl-br"},
     {"quad(side)",      "fl-fr-sl-sr"},
     {"3.1",             "fl-fr-fc-lfe"},
+    {"3.1(back)",       "fl-fr-lfe-bc"}, // not in lavc
     {"5.0",             "fl-fr-fc-bl-br"},
     {"5.0(alsa)",       "fl-fr-bl-br-fc"}, // not in lavc
     {"5.0(side)",       "fl-fr-fc-sl-sr"},
@@ -83,9 +84,11 @@ static const char *const std_layout_names[][2] = {
     {"hexagonal",       "fl-fr-fc-bl-br-bc"},
     {"6.1",             "fl-fr-fc-lfe-bc-sl-sr"},
     {"6.1(back)",       "fl-fr-fc-lfe-bl-br-bc"}, // lavc calls this "6.1" too
+    {"6.1(top)",        "fl-fr-fc-lfe-bl-br-tc"}, // not in lavc
     {"6.1(front)",      "fl-fr-lfe-flc-frc-sl-sr"},
     {"7.0",             "fl-fr-fc-bl-br-sl-sr"},
     {"7.0(front)",      "fl-fr-fc-flc-frc-sl-sr"},
+    {"7.0(rear)",       "fl-fr-fc-bl-br-sdl-sdr"}, // not in lavc
     {"7.1",             "fl-fr-fc-lfe-bl-br-sl-sr"},
     {"7.1(alsa)",       "fl-fr-bl-br-fc-lfe-sl-sr"}, // not in lavc
     {"7.1(wide)",       "fl-fr-fc-lfe-bl-br-flc-frc"},
@@ -97,7 +100,7 @@ static const char *const std_layout_names[][2] = {
     {0}
 };
 
-static const struct mp_chmap default_layouts[MP_NUM_CHANNELS + 1] = {
+static const struct mp_chmap default_layouts[] = {
     {0},                                        // empty
     MP_CHMAP_INIT_MONO,                         // mono
     MP_CHMAP2(FL, FR),                          // stereo
@@ -217,11 +220,11 @@ void mp_chmap_fill_na(struct mp_chmap *map, int num)
 // mp_chmap_is_valid(dst) will return false.
 void mp_chmap_from_channels(struct mp_chmap *dst, int num_channels)
 {
-    if (num_channels < 0 || num_channels > MP_NUM_CHANNELS) {
-        *dst = (struct mp_chmap) {0};
-    } else {
+    *dst = (struct mp_chmap) {0};
+    if (num_channels >= 0 && num_channels < MP_ARRAY_SIZE(default_layouts))
         *dst = default_layouts[num_channels];
-    }
+    if (!dst->num)
+        mp_chmap_set_unknown(dst, num_channels);
 }
 
 // Try to do what mplayer/mplayer2/mpv did before channel layouts were
@@ -384,8 +387,8 @@ void mp_chmap_get_reorder(int src[MP_NUM_CHANNELS], const struct mp_chmap *from,
         return;
     }
 
-    for (int n = 0; n < from->num; n++) {
-        for (int i = 0; i < to->num; i++) {
+    for (int n = 0; n < to->num; n++) {
+        for (int i = 0; i < from->num; i++) {
             if (to->speaker[n] == from->speaker[i]) {
                 src[n] = i;
                 break;

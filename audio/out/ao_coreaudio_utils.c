@@ -177,7 +177,7 @@ static void ca_fill_asbd_raw(AudioStreamBasicDescription *asbd, int mp_format,
 
     if ((mp_format & AF_FORMAT_TYPE_MASK) == AF_FORMAT_F) {
         asbd->mFormatFlags |= kAudioFormatFlagIsFloat;
-    } else if ((mp_format & AF_FORMAT_SIGN_MASK) == AF_FORMAT_SI) {
+    } else if (!af_fmt_unsigned(mp_format)) {
         asbd->mFormatFlags |= kAudioFormatFlagIsSignedInteger;
     }
 
@@ -456,7 +456,7 @@ bool ca_change_physical_format_sync(struct ao *ao, AudioStreamID stream,
     OSStatus err = noErr;
     bool format_set = false;
 
-    ca_print_asbd(ao, "setting stream format:", &change_format);
+    ca_print_asbd(ao, "setting stream physical format:", &change_format);
 
     sem_t wakeup;
     if (sem_init(&wakeup, 0, 0)) {

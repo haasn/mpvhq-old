@@ -1610,8 +1610,9 @@ static int mp_property_ao_detected_device(void *ctx,struct m_property *prop,
 {
     struct MPContext *mpctx = ctx;
     struct command_ctx *cmd = mpctx->command_ctx;
-    if (!mpctx->ao)
-        return M_PROPERTY_UNAVAILABLE;
+    if (!cmd->hotplug)
+        cmd->hotplug = ao_hotplug_create(mpctx->global, mpctx->input);
+
     const char *d = ao_hotplug_get_detected_device(cmd->hotplug);
     return m_property_strdup_ro(action, arg, d);
 }
@@ -3544,15 +3545,14 @@ static const char *const *const mp_event_property_change[] = {
       "demuxer-cache-time"),
     E(MP_EVENT_WIN_RESIZE, "window-scale"),
     E(MP_EVENT_WIN_STATE, "window-minimized", "display-names", "display-fps"),
-    E(MP_EVENT_AUDIO_DEVICES, "audio-device-list"),
-    E(MP_EVENT_DETECTED_AUDIO_DEVICE, "audio-out-detected-device"),
 };
 #undef E
 
+// If there is no prefix, return length+1 (avoids matching full name as prefix).
 static int prefix_len(const char *p)
 {
     const char *end = strchr(p, '/');
-    return end ? end - p : strlen(p);
+    return end ? end - p : strlen(p) + 1;
 }
 
 static bool match_property(const char *a, const char *b)
@@ -4846,6 +4846,36 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
         break;
     }
 
+    case MP_CMD_KEYPRESS:
+    case MP_CMD_KEYDOWN: {
+        const char *key_name = cmd->args[0].v.s;
+        int code = mp_input_get_key_from_name(key_name);
+        if (code < 0) {
+            MP_ERR(mpctx, "%s is not a valid input name.\n", key_name);
+            return -1;
+        }
+        if (cmd->id == MP_CMD_KEYDOWN)
+            code |= MP_KEY_STATE_DOWN;
+
+        mp_input_put_key(mpctx->input, code);
+        break;
+    }
+
+    case MP_CMD_KEYUP: {
+        const char *key_name = cmd->args[0].v.s;
+        if (key_name[0] == '\0') {
+            mp_input_put_key(mpctx->input, MP_INPUT_RELEASE_ALL);
+        } else {
+            int code = mp_input_get_key_from_name(key_name);
+            if (code < 0) {
+                MP_ERR(mpctx, "%s is not a valid input name.\n", key_name);
+                return -1;
+            }
+            mp_input_put_key(mpctx->input, code | MP_KEY_STATE_UP);
+        }
+        break;
+    }
+
     default:
         MP_VERBOSE(mpctx, "Received unknown cmd %s\n", cmd->name);
         return -1;
@@ -4873,30 +4903,12 @@ void command_init(struct MPContext *mpctx)
 static void command_event(struct MPContext *mpctx, int event, void *arg)
 {
     struct command_ctx *ctx = mpctx->command_ctx;
-    struct MPOpts *opts = mpctx->opts;
 
     if (event == MPV_EVENT_START_FILE) {
         ctx->last_seek_pts = MP_NOPTS_VALUE;
         ctx->marked_pts = MP_NOPTS_VALUE;
     }
 
-    if (event == MPV_EVENT_TICK) {
-        double now =
-            mpctx->restart_complete ? mpctx->playback_pts : MP_NOPTS_VALUE;
-        if (now != MP_NOPTS_VALUE && opts->ab_loop[0] != MP_NOPTS_VALUE &&
-            opts->ab_loop[1] != MP_NOPTS_VALUE)
-        {
-            if (ctx->prev_pts >= opts->ab_loop[0] &&
-                ctx->prev_pts < opts->ab_loop[1] &&
-                now >= opts->ab_loop[1])
-            {
-                mark_seek(mpctx);
-                queue_seek(mpctx, MPSEEK_ABSOLUTE, opts->ab_loop[0],
-                           MPSEEK_EXACT, false);
-            }
-        }
-        ctx->prev_pts = now;
-    }
     if (event == MPV_EVENT_SEEK)
         ctx->prev_pts = MP_NOPTS_VALUE;
     if (event == MPV_EVENT_IDLE)
@@ -4907,6 +4919,27 @@ static void command_event(struct MPContext *mpctx, int event, void *arg)
         // Update chapters - does nothing if something else is visible.
         set_osd_bar_chapters(mpctx, OSD_BAR_SEEK);
     }
+}
+
+void handle_ab_loop(struct MPContext *mpctx)
+{
+    struct command_ctx *ctx = mpctx->command_ctx;
+    struct MPOpts *opts = mpctx->opts;
+
+    double now = mpctx->restart_complete ? mpctx->playback_pts : MP_NOPTS_VALUE;
+    if (now != MP_NOPTS_VALUE && opts->ab_loop[0] != MP_NOPTS_VALUE &&
+        opts->ab_loop[1] != MP_NOPTS_VALUE)
+    {
+        if (ctx->prev_pts >= opts->ab_loop[0] &&
+            ctx->prev_pts < opts->ab_loop[1] &&
+            (now >= opts->ab_loop[1] || mpctx->stop_play == AT_END_OF_FILE))
+        {
+            mark_seek(mpctx);
+            queue_seek(mpctx, MPSEEK_ABSOLUTE, opts->ab_loop[0],
+                       MPSEEK_EXACT, false);
+        }
+    }
+    ctx->prev_pts = now;
 }
 
 void handle_command_updates(struct MPContext *mpctx)
