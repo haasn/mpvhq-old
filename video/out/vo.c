@@ -158,6 +158,7 @@ struct vo_internal {
     int64_t frame_vsync_offset;     // "ideal" display time within vsync
     int frame_num_vsyncs;           // number of vsyncs to display the frame
                                     // (display timing mode only)
+    int frame_num_displayed;        // how many of them were shown yet
     int64_t frame_ended;            // !=0 if the frame was rendered
 
     double display_fps;
@@ -447,6 +448,7 @@ static void forget_frames(struct vo *vo)
     mp_image_unrefp(&in->frame_queued);
     set_future_frames(vo, NULL);
     in->frame_num_vsyncs = 0;
+    in->frame_num_displayed = 0;
     // don't unref current_frame; we always want to be able to redraw it
 }
 
@@ -541,7 +543,8 @@ bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts)
 {
     struct vo_internal *in = vo->in;
     pthread_mutex_lock(&in->lock);
-    bool r = vo->config_ok && !in->frame_queued && !in->frame_num_vsyncs;
+    bool r = vo->config_ok && !in->frame_queued &&
+             in->frame_num_displayed >= in->frame_num_vsyncs;
     if (r && next_pts >= 0) {
         // Don't show the frame too early - it would basically freeze the
         // display by disallowing OSD redrawing or VO interaction.
@@ -578,7 +581,8 @@ void vo_queue_frame(struct vo *vo, struct mp_image **images,
     pthread_mutex_lock(&in->lock);
     struct mp_image *image = images[0];
     assert(image);
-    assert(vo->config_ok && !in->frame_queued && !in->frame_num_vsyncs);
+    assert(vo->config_ok && !in->frame_queued &&
+           in->frame_num_displayed >= in->frame_num_vsyncs);
     bool display_timing = pts_us < 0;
     in->hasframe = true;
     in->frame_queued = image;
@@ -586,6 +590,7 @@ void vo_queue_frame(struct vo *vo, struct mp_image **images,
     in->frame_duration = duration;
     in->frame_vsync_offset = vsync_offset;
     in->frame_num_vsyncs = display_timing ? num_vsyncs : 0;
+    in->frame_num_displayed = 0;
     set_future_frames(vo, images + 1);
     assert(display_timing || num_vsyncs == 1);
     int64_t projected_duration = 0;
@@ -667,13 +672,15 @@ static bool render_frame(struct vo *vo)
     int64_t pts = in->frame_pts;
     int64_t duration = in->frame_duration;
     int64_t vsync_offset = in->frame_vsync_offset;
+    //in->frame_vsync_offset = (in->frame_vsync_offset + in->vsync_interval) % in->vsync_interval;
     struct mp_image *img = in->frame_queued;
     bool display_timing = pts < 0;
 
     if (display_timing) {
-        if (!in->frame_num_vsyncs || (!img && in->paused))
+        if (in->frame_num_displayed >= in->frame_num_vsyncs || (!img && in->paused))
             goto nothing_done;
-        in->frame_num_vsyncs -= 1;
+        vsync_offset += in->vsync_interval * in->frame_num_displayed;
+        in->frame_num_displayed++;
     } else {
         if (!img && (!in->vsync_timed || in->paused))
             goto nothing_done;
@@ -977,7 +984,7 @@ bool vo_still_displaying(struct vo *vo)
     int64_t now = mp_time_us();
     int64_t frame_end = in->frame_pts + MPMAX(in->frame_duration, 0);
     bool working = now < frame_end || in->rendering || in->frame_queued ||
-                   in->frame_num_vsyncs;
+                   in->frame_num_displayed < in->frame_num_vsyncs;
     pthread_mutex_unlock(&vo->in->lock);
     return working && in->hasframe;
 }
