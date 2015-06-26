@@ -763,8 +763,10 @@ static bool render_frame(struct vo *vo)
         int num_future_frames = in->num_future_frames;
         in->num_future_frames = 0;
         struct mp_image *future_frames[VO_MAX_FUTURE_FRAMES];
-        for (int n = 0; n < num_future_frames; n++)
+        for (int n = 0; n < num_future_frames; n++) {
             future_frames[n] = in->future_frames[n];
+            in->future_frames[n] = NULL;
+        }
         pthread_mutex_unlock(&in->lock);
         mp_input_wakeup(vo->input_ctx); // core can queue new video now
 
