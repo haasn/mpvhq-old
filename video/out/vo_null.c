@@ -89,6 +89,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
 const struct vo_driver video_out_null = {
     .description = "Null video output",
     .name = "null",
+    .caps = VO_CAP_SYNC_DISPLAY,
     .preinit = preinit,
     .query_format = query_format,
     .reconfig = reconfig,

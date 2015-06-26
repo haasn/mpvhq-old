@@ -249,7 +249,7 @@ static void resize(struct vo *vo)
     vc->flip_offset_us = vo->opts->fullscreen ?
                          1000LL * vc->flip_offset_fs :
                          1000LL * vc->flip_offset_window;
-    vo_set_flip_queue_params(vo, vc->flip_offset_us, false);
+    vo_set_queue_params(vo, vc->flip_offset_us, false, 0);
 
     if (vc->output_surface_w < vo->dwidth || vc->output_surface_h < vo->dheight) {
         vc->output_surface_w = s_size(max_w, vc->output_surface_w, vo->dwidth);
@@ -718,6 +718,7 @@ static int flip_page_timed(struct vo *vo, int64_t pts_us, int duration)
     } else if (vc->user_fps == 0) {
         vc->vsync_interval = vo_get_vsync_interval(vo) * 1000;
     }
+    vc->vsync_interval = MPMAX(vc->vsync_interval, 1);
 
     if (duration > INT_MAX / 1000)
         duration = -1;
@@ -827,13 +828,15 @@ static void draw_image(struct vo *vo, struct mp_image *mpi)
 
     check_preemption(vo);
 
-    struct mp_image *vdp_mpi = mp_vdpau_upload_video_surface(vc->mpvdp, mpi);
-    if (!vdp_mpi)
-        MP_ERR(vo, "Could not upload image.\n");
-    talloc_free(mpi);
+    if (mpi) {
+        struct mp_image *vdp_mpi = mp_vdpau_upload_video_surface(vc->mpvdp, mpi);
+        if (!vdp_mpi)
+            MP_ERR(vo, "Could not upload image.\n");
+        talloc_free(mpi);
 
-    talloc_free(vc->current_image);
-    vc->current_image = vdp_mpi;
+        talloc_free(vc->current_image);
+        vc->current_image = vdp_mpi;
+    }
 
     if (status_ok(vo))
         video_to_output_surface(vo);
@@ -1075,7 +1078,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
 const struct vo_driver video_out_vdpau = {
     .description = "VDPAU with X11",
     .name = "vdpau",
-    .caps = VO_CAP_FRAMEDROP,
+    .caps = VO_CAP_FRAMEDROP | VO_CAP_SYNC_DISPLAY,
     .preinit = preinit,
     .query_format = query_format,
     .reconfig = reconfig,

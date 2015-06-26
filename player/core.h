@@ -26,6 +26,7 @@
 #include "options/options.h"
 #include "sub/osd.h"
 #include "demux/timeline.h"
+#include "video/out/vo.h"
 
 // definitions used internally by the core player code
 
@@ -227,11 +228,23 @@ typedef struct MPContext {
 
     struct vo *video_out;
     // next_frame[0] is the next frame, next_frame[1] the one after that.
-    struct mp_image *next_frame[2];
+    struct mp_image *next_frames[2 + VO_MAX_FUTURE_FRAMES];
+    int num_next_frames;
     struct mp_image *saved_frame;   // for hrseek_lastframe
 
     enum playback_status video_status, audio_status;
     bool restart_complete;
+    // Total playback speed - this is: opts->playback_speed * speed_correction
+    double playback_speed;
+    // Additional speed factor chosen by display sync code.
+    double speed_correction;
+    double audio_speed_correction;
+    bool display_sync_active;
+    double timestamp_unrounding_error;
+    // Timing error (in seconds) due to rounding on vsync boundaries
+    double display_sync_error;
+    // Last time speed was adjusted (in mp_time_us() units)
+    int64_t last_display_sync_adjustment;
     /* Set if audio should be timed to start with video frame after seeking,
      * not set when e.g. playing cover art */
     bool sync_audio_to_video;
@@ -355,7 +368,7 @@ double playing_audio_pts(struct MPContext *mpctx);
 void fill_audio_out_buffers(struct MPContext *mpctx, double endpts);
 double written_audio_pts(struct MPContext *mpctx);
 void clear_audio_output_buffers(struct MPContext *mpctx);
-void set_playback_speed(struct MPContext *mpctx, double new_speed);
+void update_playback_speed(struct MPContext *mpctx);
 void uninit_audio_out(struct MPContext *mpctx);
 void uninit_audio_chain(struct MPContext *mpctx);
 
