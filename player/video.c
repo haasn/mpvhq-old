@@ -1042,8 +1042,8 @@ void write_video(struct MPContext *mpctx, double endpts)
         // video framerate is higher than the display framerate.
         // We use the speed-adjusted (i.e. real) frame duration for this.
         double frame_duration = adjusted_duration / video_speed_correction;
-        double ratio = frame_duration / vsync;
-        num_vsyncs = MPMAX(floor(ratio + mpctx->display_sync_error + 0.5), 0);
+        double ratio = (frame_duration + mpctx->display_sync_error) / vsync;
+        num_vsyncs = MPMAX(floor(ratio + 0.5), 0);
         mpctx->display_sync_error += frame_duration - num_vsyncs * vsync;
         vsync_offset = mpctx->display_sync_error * 1e6;
         //MP_WARN(mpctx, "vsyncs s=%d d=%f v=%f r=%f e=%.20f (%f)\n", num_vsyncs,
