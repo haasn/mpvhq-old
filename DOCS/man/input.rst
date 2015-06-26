@@ -670,7 +670,7 @@ Hooks
 ~~~~~
 
 Hooks are synchronous events between player core and a script or similar. This
-applies to the Lua scripting interface and the client API and only. Normally,
+applies to client API (including the Lua scripting interface). Normally,
 events are supposed to be asynchronous, and the hook API provides an awkward
 and obscure way to handle events that require stricter coordination. There are
 no API stability guarantees made. Not following the protocol exactly can make
@@ -1181,6 +1181,11 @@ Property list
         The channel layout as a string. This is similar to what the
         ``--audio-channels`` accepts.
 
+    ``audio-params/hr-channels``
+        As ``channels``, but instead of the possibly cryptic actual layout
+        sent to the audio device, return a hopefully more human readable form.
+        (Usually only ``audio-out-params/hr-channels`` makes sense.)
+
     ``audio-params/channel-count``
         Number of audio channels. This is redundant to the ``channels`` field
         described above.
@@ -1197,6 +1202,7 @@ Property list
                 "samplerate"        MPV_FORMAT_INT64
                 "channels"          MPV_FORMAT_STRING
                 "channel-count"     MPV_FORMAT_INT64
+                "hr-channels"       MPV_FORMAT_STRING
 
 ``audio-out-params``
     Same as ``audio-params``, but the format of the data written to the audio
@@ -1352,6 +1358,9 @@ Property list
     ``video-params/rotate``
         Intended display rotation in degrees (clockwise).
 
+    ``video-params/stereo-in``
+        Source file stereo 3D mode. (See ``--video-stereo-mode`` option.)
+
     When querying the property with the client API using ``MPV_FORMAT_NODE``,
     or with Lua ``mp.get_property_native``, this will return a mpv_node with
     the following contents:
@@ -1372,6 +1381,7 @@ Property list
                 "primaries"         MPV_FORMAT_STRING
                 "chroma-location"   MPV_FORMAT_STRING
                 "rotate"            MPV_FORMAT_INT64
+                "stereo-in"         MPV_FORMAT_STRING
 
 ``dwidth``, ``dheight``
     Video display size. This is the video size after filters and aspect scaling

@@ -1664,6 +1664,7 @@ static int property_audiofmt(struct mp_audio a, int action, void *arg)
         {"samplerate",      SUB_PROP_INT(a.rate)},
         {"channel-count",   SUB_PROP_INT(a.channels.num)},
         {"channels",        SUB_PROP_STR(mp_chmap_to_str(&a.channels))},
+        {"hr-channels",     SUB_PROP_STR(mp_chmap_to_str_hr(&a.channels))},
         {"format",          SUB_PROP_STR(af_fmt_to_str(a.format))},
         {0}
     };
@@ -2391,6 +2392,10 @@ static int property_imgparams(struct mp_image_params p, int action, void *arg)
             SUB_PROP_STR(m_opt_choice_str(mp_csp_trc_names, p.gamma))},
         {"chroma-location",
             SUB_PROP_STR(m_opt_choice_str(mp_chroma_names, p.chroma_location))},
+        {"stereo-in",
+            SUB_PROP_STR(m_opt_choice_str(mp_stereo3d_names, p.stereo_in))},
+        {"stereo-out",
+            SUB_PROP_STR(m_opt_choice_str(mp_stereo3d_names, p.stereo_out))},
         {"rotate",          SUB_PROP_INT(p.rotate)},
         {0}
     };

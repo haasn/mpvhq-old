@@ -116,7 +116,7 @@ static int init(struct dec_audio *da, const char *decoder)
 
     mp_set_avopts(da->log, lavc_context, opts->avopts);
 
-    lavc_context->codec_tag = sh->format;
+    lavc_context->codec_tag = sh->codec_tag;
     lavc_context->sample_rate = sh_audio->samplerate;
     lavc_context->bit_rate = sh_audio->bitrate;
     lavc_context->block_align = sh_audio->block_align;
@@ -126,11 +126,7 @@ static int init(struct dec_audio *da, const char *decoder)
         lavc_context->channel_layout = mp_chmap_to_lavc(&sh_audio->channels);
 
     // demux_mkv
-    if (sh_audio->codecdata_len && sh_audio->codecdata &&
-            !lavc_context->extradata) {
-        mp_lavc_set_extradata(lavc_context, sh_audio->codecdata,
-                              sh_audio->codecdata_len);
-    }
+    mp_lavc_set_extradata(lavc_context, sh->extradata, sh->extradata_size);
 
     if (sh->lav_headers)
         mp_copy_lav_codec_headers(lavc_context, sh->lav_headers);

@@ -158,7 +158,7 @@ uint64_t ebml_read_uint(stream_t *s)
     uint64_t len, value = 0;
 
     len = ebml_read_length(s);
-    if (len == EBML_UINT_INVALID || len < 1 || len > 8)
+    if (len == EBML_UINT_INVALID || len > 8)
         return EBML_UINT_INVALID;
 
     while (len--)
@@ -177,8 +177,10 @@ int64_t ebml_read_int(stream_t *s)
     int l;
 
     len = ebml_read_length(s);
-    if (len == EBML_UINT_INVALID || len < 1 || len > 8)
+    if (len == EBML_UINT_INVALID || len > 8)
         return EBML_INT_INVALID;
+    if (!len)
+        return 0;
 
     len--;
     l = stream_read_char(s);
@@ -318,7 +320,7 @@ static uint64_t ebml_parse_length(uint8_t *data, size_t data_len, int *length)
 
 static uint64_t ebml_parse_uint(uint8_t *data, int length)
 {
-    assert(length >= 1 && length <= 8);
+    assert(length >= 0 && length <= 8);
     uint64_t r = 0;
     while (length--)
         r = (r << 8) + *data++;
@@ -327,7 +329,9 @@ static uint64_t ebml_parse_uint(uint8_t *data, int length)
 
 static int64_t ebml_parse_sint(uint8_t *data, int length)
 {
-    assert(length >=1 && length <= 8);
+    assert(length >= 0 && length <= 8);
+    if (!length)
+        return 0;
     uint64_t r = 0;
     if (*data & 0x80)
         r = -1;
@@ -338,7 +342,7 @@ static int64_t ebml_parse_sint(uint8_t *data, int length)
 
 static double ebml_parse_float(uint8_t *data, int length)
 {
-    assert(length == 4 || length == 8);
+    assert(length == 0 || length == 4 || length == 8);
     uint64_t i = ebml_parse_uint(data, length);
     if (length == 4)
         return av_int2float(i);
@@ -415,7 +419,7 @@ static void ebml_parse_element(struct ebml_parse_ctx *ctx, void *target,
         break;
     }
 
-    for (int i = 0; i < type->field_count; i++)
+    for (int i = 0; i < type->field_count; i++) {
         if (num_elems[i] && type->fields[i].multiple) {
             char *ptr = s + type->fields[i].offset;
             switch (type->fields[i].desc->type) {
@@ -442,6 +446,9 @@ static void ebml_parse_element(struct ebml_parse_ctx *ctx, void *target,
                                                      double, num_elems[i]);
                 break;
             case EBML_TYPE_STR:
+                *(char ***) ptr = talloc_zero_array(ctx->talloc_ctx,
+                                                    char *, num_elems[i]);
+                break;
             case EBML_TYPE_BINARY:
                 *(struct bstr **) ptr = talloc_zero_array(ctx->talloc_ctx,
                                                           struct bstr,
@@ -455,6 +462,7 @@ static void ebml_parse_element(struct ebml_parse_ctx *ctx, void *target,
                 abort();
             }
         }
+    }
 
     while (data < end) {
         int len;
@@ -550,7 +558,7 @@ static void ebml_parse_element(struct ebml_parse_ctx *ctx, void *target,
         case EBML_TYPE_SINT:;
             int64_t *sintptr;
             GETPTR(sintptr, int64_t);
-            if (length < 1 || length > 8) {
+            if (length > 8) {
                 MP_DBG(ctx, "sint invalid length %"PRIu64"\n", length);
                 goto error;
             }
@@ -561,7 +569,7 @@ static void ebml_parse_element(struct ebml_parse_ctx *ctx, void *target,
         case EBML_TYPE_FLOAT:;
             double *floatptr;
             GETPTR(floatptr, double);
-            if (length != 4 && length != 8) {
+            if (length != 0 && length != 4 && length != 8) {
                 MP_DBG(ctx, "float invalid length %"PRIu64"\n", length);
                 goto error;
             }
@@ -570,19 +578,26 @@ static void ebml_parse_element(struct ebml_parse_ctx *ctx, void *target,
             break;
 
         case EBML_TYPE_STR:
+            if (length > 1024 * 1024) {
+                MP_ERR(ctx, "Not reading overly long string element.\n");
+                break;
+            }
+            char **strptr;
+            GETPTR(strptr, char *);
+            *strptr = talloc_strndup(ctx->talloc_ctx, data, length);
+            MP_DBG(ctx, "string \"%s\"\n", *strptr);
+            break;
+
         case EBML_TYPE_BINARY:;
             if (length > 0x80000000) {
                 MP_ERR(ctx, "Not reading overly long EBML element.\n");
                 break;
             }
-            struct bstr *strptr;
-            GETPTR(strptr, struct bstr);
-            strptr->start = data;
-            strptr->len = length;
-            if (ed->type == EBML_TYPE_STR)
-                MP_DBG(ctx, "string \"%.*s\"\n", BSTR_P(*strptr));
-            else
-                MP_DBG(ctx, "binary %zd bytes\n", strptr->len);
+            struct bstr *binptr;
+            GETPTR(binptr, struct bstr);
+            binptr->start = data;
+            binptr->len = length;
+            MP_DBG(ctx, "binary %zd bytes\n", binptr->len);
             break;
 
         case EBML_TYPE_EBML_ID:;

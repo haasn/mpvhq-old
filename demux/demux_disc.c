@@ -112,8 +112,8 @@ static void add_dvd_streams(demuxer_t *demuxer)
             }
             s = talloc_asprintf_append(s, "\n");
 
-            sh->sub->extradata = s;
-            sh->sub->extradata_len = strlen(s);
+            sh->extradata = s;
+            sh->extradata_size = strlen(s);
         }
     }
 }
@@ -141,7 +141,7 @@ static void add_streams(demuxer_t *demuxer)
         MP_TARRAY_APPEND(p, p->streams, p->num_streams, sh);
         // Copy all stream fields that might be relevant
         sh->codec = talloc_strdup(sh, src->codec);
-        sh->format = src->format;
+        sh->codec_tag = src->codec_tag;
         sh->lav_headers = src->lav_headers;
         sh->demuxer_id = src->demuxer_id;
         if (src->video) {
@@ -282,7 +282,7 @@ static void add_stream_chapters(struct demuxer *demuxer)
         double p = n;
         if (stream_control(demuxer->stream, STREAM_CTRL_GET_CHAPTER_TIME, &p) < 1)
             continue;
-        demuxer_add_chapter(demuxer, bstr0(""), p, 0);
+        demuxer_add_chapter(demuxer, "", p, 0);
     }
 }
 
@@ -301,7 +301,7 @@ static int d_open(demuxer_t *demuxer, enum demux_check check)
     char *t = NULL;
     stream_control(demuxer->stream, STREAM_CTRL_GET_DISC_NAME, &t);
     if (t) {
-        mp_tags_set_bstr(demuxer->metadata, bstr0("TITLE"), bstr0(t));
+        mp_tags_set_str(demuxer->metadata, "TITLE", t);
         talloc_free(t);
     }
 

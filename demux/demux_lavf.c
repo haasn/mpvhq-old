@@ -521,8 +521,6 @@ static void handle_stream(demuxer_t *demuxer, int i)
             break;
         sh_audio_t *sh_audio = sh->audio;
 
-        sh->format = codec->codec_tag;
-
         // probably unneeded
         mp_chmap_set_unknown(&sh_audio->channels, codec->channels);
         if (codec->channel_layout)
@@ -550,7 +548,6 @@ static void handle_stream(demuxer_t *demuxer, int i)
             }
         }
 
-        sh->format = codec->codec_tag;
         sh_video->disp_w = codec->width;
         sh_video->disp_h = codec->height;
         /* Try to make up some frame rate value, even if it's not reliable.
@@ -595,9 +592,9 @@ static void handle_stream(demuxer_t *demuxer, int i)
         sh_sub = sh->sub;
 
         if (codec->extradata_size) {
-            sh_sub->extradata = talloc_size(sh, codec->extradata_size);
-            memcpy(sh_sub->extradata, codec->extradata, codec->extradata_size);
-            sh_sub->extradata_len = codec->extradata_size;
+            sh->extradata = talloc_size(sh, codec->extradata_size);
+            memcpy(sh->extradata, codec->extradata, codec->extradata_size);
+            sh->extradata_size = codec->extradata_size;
         }
 
         if (matches_avinputformat_name(priv, "microdvd")) {
@@ -621,9 +618,8 @@ static void handle_stream(demuxer_t *demuxer, int i)
         AVDictionaryEntry *mt = av_dict_get(st->metadata, "mimetype", NULL, 0);
         char *mimetype = mt ? mt->value : NULL;
         if (mimetype) {
-            demuxer_add_attachment(demuxer, bstr0(filename), bstr0(mimetype),
-                                   (struct bstr){codec->extradata,
-                                                 codec->extradata_size});
+            demuxer_add_attachment(demuxer, filename, mimetype,
+                                   codec->extradata, codec->extradata_size);
         }
         break;
     }
@@ -636,6 +632,7 @@ static void handle_stream(demuxer_t *demuxer, int i)
     if (sh) {
         sh->ff_index = st->index;
         sh->codec = mp_codec_from_av_codec_id(codec->codec_id);
+        sh->codec_tag = codec->codec_tag;
         sh->lav_headers = codec;
 
         if (st->disposition & AV_DISPOSITION_DEFAULT)
@@ -810,7 +807,7 @@ static int demux_open_lavf(demuxer_t *demuxer, enum demux_check check)
     for (i = 0; i < avfc->nb_chapters; i++) {
         AVChapter *c = avfc->chapters[i];
         t = av_dict_get(c->metadata, "title", NULL, 0);
-        int index = demuxer_add_chapter(demuxer, t ? bstr0(t->value) : bstr0(""),
+        int index = demuxer_add_chapter(demuxer, t ? t->value : "",
                                         c->start * av_q2d(c->time_base), i);
         mp_tags_copy_from_av_dictionary(demuxer->chapters[index].metadata, c->metadata);
     }

@@ -20,6 +20,9 @@ Interface changes
 ::
 
  --- mpv 0.10.0 will be released ---
+    - add audio-params/channel-count and ``audio-params-out/channel-count props.
+    - add af volume replaygain-fallback suboption
+    - add video-params/stereo-in property
     - add "keypress", "keydown", and "keyup" commands
     - deprecate --ad-spdif-dtshd and enabling passthrough via --ad
       add --audio-spdif as replacement
