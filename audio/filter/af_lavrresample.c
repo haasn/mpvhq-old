@@ -90,6 +90,7 @@ struct af_resample {
     int reorder_in[MP_NUM_CHANNELS];
     int reorder_out[MP_NUM_CHANNELS];
     struct mp_audio_pool *reorder_buffer;
+    char remix_msg[80];
 };
 
 #if HAVE_LIBAVRESAMPLE
@@ -274,8 +275,13 @@ static int configure_lavrr(struct af_instance *af, struct mp_audio *in,
     mp_chmap_from_lavc(&in_lavc, in_ch_layout);
     mp_chmap_from_lavc(&out_lavc, out_ch_layout);
 
-    MP_VERBOSE(af, "Remix: %s -> %s\n", mp_chmap_to_str(&in_lavc),
-                                        mp_chmap_to_str(&out_lavc));
+    char msg[80];
+    snprintf(msg, sizeof(msg), "Remix: %s -> %s\n", mp_chmap_to_str(&in_lavc),
+                                                    mp_chmap_to_str(&out_lavc));
+    if (strcmp(s->remix_msg, msg) != 0) {
+        MP_VERBOSE(af, "%s", msg);
+        snprintf(s->remix_msg, sizeof(s->remix_msg), "%s", msg);
+    }
 
     if (in_lavc.num != map_in.num) {
         // For handling NA channels, we would have to add a planarization step.
