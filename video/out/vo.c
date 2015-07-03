@@ -647,7 +647,8 @@ static bool render_frame(struct vo *vo)
     frame->prev_vsync = prev_vsync;
 
     if (display_timed) {
-        frame->pts = mp_time_us();
+        frame->pts = 0;
+        duration = -1;
     } else {
         frame->vsync_offset = next_vsync - pts;
     }
