@@ -71,6 +71,7 @@ struct priv {
     MMAL_COMPONENT_T *renderer;
     bool renderer_enabled;
 
+    bool display_synced;
     struct mp_image *next_image;
 
     // for RAM input
@@ -360,7 +361,8 @@ static void flip_page(struct vo *vo)
         }
     }
 
-    wait_next_vsync(vo);
+    if (p->display_synced)
+        wait_next_vsync(vo);
 }
 
 static void free_mmal_buffer(void *arg)
@@ -387,6 +389,8 @@ static void draw_frame(struct vo *vo, struct vo_frame *frame)
     // hasn't when a frame is merely repeated for display sync.
     if (frame->redraw || !frame->repeat)
         update_osd(vo);
+
+    p->display_synced = frame->pts <= 0;
 
     if (vo->params->imgfmt != IMGFMT_MMAL) {
         MMAL_BUFFER_HEADER_T *buffer = mmal_queue_wait(p->swpool->queue);
