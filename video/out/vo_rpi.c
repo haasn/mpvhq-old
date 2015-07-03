@@ -78,6 +78,10 @@ struct priv {
 
     atomic_bool update_display;
 
+    pthread_mutex_t vsync_mutex;
+    pthread_cond_t vsync_cond;
+    int64_t vsync_counter;
+
     int background_layer;
     int video_layer;
     int osd_layer;
@@ -323,6 +327,16 @@ static int update_display_size(struct vo *vo)
     return 0;
 }
 
+static void wait_next_vsync(struct vo *vo)
+{
+    struct priv *p = vo->priv;
+    pthread_mutex_lock(&p->vsync_mutex);
+    int64_t old = p->vsync_counter;
+    while (old == p->vsync_counter)
+        pthread_cond_wait(&p->vsync_cond, &p->vsync_mutex);
+    pthread_mutex_unlock(&p->vsync_mutex);
+}
+
 static void flip_page(struct vo *vo)
 {
     struct priv *p = vo->priv;
@@ -345,6 +359,8 @@ static void flip_page(struct vo *vo)
             talloc_free(mpi);
         }
     }
+
+    wait_next_vsync(vo);
 }
 
 static void free_mmal_buffer(void *arg)
@@ -353,15 +369,24 @@ static void free_mmal_buffer(void *arg)
     mmal_buffer_header_release(buffer);
 }
 
-static void draw_image(struct vo *vo, mp_image_t *mpi)
+static void draw_frame(struct vo *vo, struct vo_frame *frame)
 {
     struct priv *p = vo->priv;
+
+    mp_image_t *mpi = NULL;
+    if (!frame->redraw && !frame->repeat)
+        mpi = mp_image_new_ref(frame->current);
 
     talloc_free(p->next_image);
     p->next_image = NULL;
 
-    p->osd_pts = mpi->pts;
-    update_osd(vo);
+    if (mpi)
+        p->osd_pts = mpi->pts;
+
+    // Redraw only if the OSD has meaningfully changed, which we assume it
+    // hasn't when a frame is merely repeated for display sync.
+    if (frame->redraw || !frame->repeat)
+        update_osd(vo);
 
     if (vo->params->imgfmt != IMGFMT_MMAL) {
         MMAL_BUFFER_HEADER_T *buffer = mmal_queue_wait(p->swpool->queue);
@@ -575,6 +600,16 @@ static void tv_callback(void *callback_data, uint32_t reason, uint32_t param1,
     vo_wakeup(vo);
 }
 
+static void vsync_callback(DISPMANX_UPDATE_HANDLE_T u, void *arg)
+{
+    struct vo *vo = arg;
+    struct priv *p = vo->priv;
+    pthread_mutex_lock(&p->vsync_mutex);
+    p->vsync_counter += 1;
+    pthread_cond_signal(&p->vsync_cond);
+    pthread_mutex_unlock(&p->vsync_mutex);
+}
+
 static void uninit(struct vo *vo)
 {
     struct priv *p = vo->priv;
@@ -602,6 +637,9 @@ static void uninit(struct vo *vo)
         vc_dispmanx_display_close(p->display);
 
     mmal_vc_deinit();
+
+    pthread_cond_destroy(&p->vsync_cond);
+    pthread_mutex_destroy(&p->vsync_mutex);
 }
 
 static int preinit(struct vo *vo)
@@ -637,6 +675,11 @@ static int preinit(struct vo *vo)
 
     vc_tv_register_callback(tv_callback, vo);
 
+    pthread_mutex_init(&p->vsync_mutex, NULL);
+    pthread_cond_init(&p->vsync_cond, NULL);
+
+    vc_dispmanx_vsync_callback(p->display, vsync_callback, vo);
+
     return 0;
 
 fail:
@@ -654,11 +697,12 @@ static const struct m_option options[] = {
 const struct vo_driver video_out_rpi = {
     .description = "Raspberry Pi (MMAL)",
     .name = "rpi",
+    .caps = VO_CAP_SYNC_DISPLAY,
     .preinit = preinit,
     .query_format = query_format,
     .reconfig = reconfig,
     .control = control,
-    .draw_image = draw_image,
+    .draw_frame = draw_frame,
     .flip_page = flip_page,
     .uninit = uninit,
     .priv_size = sizeof(struct priv),
