@@ -212,6 +212,11 @@ static void print_status(struct MPContext *mpctx)
             saddf(&line, " ct:%7.3f", mpctx->total_avsync_change);
     }
 
+    if (mpctx->display_sync_active) {
+        saddf(&line, " DS: %f/%f", mpctx->speed_correction,
+              mpctx->audio_speed_correction);
+    }
+
 #if HAVE_ENCODING
     double position = get_current_pos_ratio(mpctx, true);
     char lavcbuf[80];
