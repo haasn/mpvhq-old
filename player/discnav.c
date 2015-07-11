@@ -135,6 +135,7 @@ void mp_nav_init(struct MPContext *mpctx)
     if (mpctx->encode_lavc_ctx)
         return;
 
+#if 0
     struct mp_nav_cmd inp = {MP_NAV_CMD_ENABLE};
     if (run_stream_control(mpctx, STREAM_CTRL_NAV_CMD, &inp) < 1)
         return;
@@ -150,6 +151,7 @@ void mp_nav_init(struct MPContext *mpctx)
 
     update_state(mpctx);
     update_mouse_on_button(mpctx);
+#endif
 }
 
 void mp_nav_reset(struct MPContext *mpctx)
@@ -232,7 +234,7 @@ void mp_handle_nav(struct MPContext *mpctx)
             break;
         }
         case MP_NAV_EVENT_RESET_ALL: {
-            mpctx->stop_play = PT_RELOAD_DEMUXER;
+            mpctx->stop_play = PT_RELOAD_FILE; // would wipe DVD state -> broken
             MP_VERBOSE(nav, "reload\n");
             // return immediately.
             // other events should be handled after reloaded.

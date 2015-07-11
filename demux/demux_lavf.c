@@ -575,9 +575,11 @@ static void handle_stream(demuxer_t *demuxer, int i)
                     / (float)(codec->height * codec->sample_aspect_ratio.den);
 
         uint8_t *sd = av_stream_get_side_data(st, AV_PKT_DATA_DISPLAYMATRIX, NULL);
-        if (sd)
-            sh_video->rotate = -av_display_rotation_get((uint32_t *)sd);
-        sh_video->rotate = ((sh_video->rotate % 360) + 360) % 360;
+        if (sd) {
+            double r = av_display_rotation_get((uint32_t *)sd);
+            if (!isnan(r))
+                sh_video->rotate = (((int)(-r) % 360) + 360) % 360;
+        }
 
         // This also applies to vfw-muxed mkv, but we can't detect these easily.
         sh_video->avi_dts = matches_avinputformat_name(priv, "avi");
@@ -636,7 +638,9 @@ static void handle_stream(demuxer_t *demuxer, int i)
         sh->lav_headers = codec;
 
         if (st->disposition & AV_DISPOSITION_DEFAULT)
-            sh->default_track = 1;
+            sh->default_track = true;
+        if (st->disposition & AV_DISPOSITION_FORCED)
+            sh->forced_track = true;
         if (priv->format_hack.use_stream_ids)
             sh->demuxer_id = st->id;
         AVDictionaryEntry *title = av_dict_get(st->metadata, "title", NULL, 0);

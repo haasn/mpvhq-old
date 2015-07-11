@@ -437,6 +437,12 @@ FFmpeg/Libav libraries. You need at least {0}. Aborting.".format(libav_versions_
         'func': check_statement('libavutil/pixfmt.h',
                                 'int x = AV_PIX_FMT_MMAL',
                                 use='libav'),
+    }, {
+        'name': 'av-version-info',
+        'desc': 'libavtuil av_version_info()',
+        'func': check_statement('libavutil/avutil.h',
+                                'const char *x = av_version_info()',
+                                use='libav'),
     }
 ]
 
@@ -621,7 +627,7 @@ video_output_features = [
         'desc': 'VAAPI acceleration',
         'deps': [ 'x11', 'libdl' ],
         'func': check_pkg_config(
-            'libva', '>= 0.32.0', 'libva-x11', '>= 0.32.0'),
+            'libva', '>= 0.34.0', 'libva-x11', '>= 0.34.0'),
     }, {
         'name': '--vaapi-vpp',
         'desc': 'VAAPI VPP',
@@ -911,6 +917,12 @@ def configure(ctx):
 
     ctx.store_dependencies_lists()
 
+def __write_version__(ctx):
+    import subprocess
+    subprocess.call(["sh", "./version.sh",
+                     "--versionh=" + ctx.bldnode.abspath() + "/version.h"],
+                    cwd=ctx.srcnode.abspath())
+
 def build(ctx):
     if ctx.options.variant not in ctx.all_envs:
         from waflib import Errors
@@ -918,6 +930,7 @@ def build(ctx):
             'The project was not configured: run "waf --variant={0} configure" first!'
                 .format(ctx.options.variant))
     ctx.unpack_dependencies_lists()
+    __write_version__(ctx)
     ctx.load('wscript_build')
 
 def init(ctx):

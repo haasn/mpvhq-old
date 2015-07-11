@@ -192,7 +192,8 @@ void error_on_track(struct MPContext *mpctx, struct track *track)
             (!mpctx->current_track[0][STREAM_AUDIO] &&
              !mpctx->current_track[0][STREAM_VIDEO]))
         {
-            mpctx->stop_play = PT_ERROR;
+            if (!mpctx->stop_play)
+                mpctx->stop_play = PT_ERROR;
             if (mpctx->error_playing >= 0)
                 mpctx->error_playing = MPV_ERROR_NOTHING_TO_PLAY;
         }
@@ -200,17 +201,17 @@ void error_on_track(struct MPContext *mpctx, struct track *track)
     }
 }
 
-void stream_dump(struct MPContext *mpctx)
+int stream_dump(struct MPContext *mpctx, const char *source_filename)
 {
     struct MPOpts *opts = mpctx->opts;
-    char *filename = opts->stream_dump;
-    stream_t *stream = mpctx->stream;
-    assert(stream && filename);
+    stream_t *stream = stream_open(source_filename, mpctx->global);
+    if (!stream)
+        return -1;
 
     int64_t size = 0;
     stream_control(stream, STREAM_CTRL_GET_SIZE, &size);
 
-    stream_set_capture_file(stream, filename);
+    stream_set_capture_file(stream, opts->stream_dump);
 
     while (mpctx->stop_play == KEEP_PLAYING && !stream->eof) {
         if (!opts->quiet && ((stream->pos / (1024 * 1024)) % 2) == 1) {
@@ -221,6 +222,9 @@ void stream_dump(struct MPContext *mpctx)
         stream_fill_buffer(stream);
         mp_process_input(mpctx);
     }
+
+    free_stream(stream);
+    return 0;
 }
 
 void merge_playlist_files(struct playlist *pl)

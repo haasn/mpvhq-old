@@ -363,8 +363,6 @@ static int mp_property_media_title(void *ctx, struct m_property *prop,
         name = mpctx->opts->media_title;
     if (name && name[0])
         return m_property_strdup_ro(action, arg, name);
-    if (name && name[0])
-        return m_property_strdup_ro(action, arg, name);
     if (mpctx->master_demuxer) {
         name = mp_tags_get_str(mpctx->master_demuxer->metadata, "title");
         if (name && name[0])
@@ -373,6 +371,8 @@ static int mp_property_media_title(void *ctx, struct m_property *prop,
         if (name && name[0])
             return m_property_strdup_ro(action, arg, name);
     }
+    if (mpctx->playing && mpctx->playing->title)
+        return m_property_strdup_ro(action, arg, mpctx->playing->title);
     return mp_property_filename(ctx, prop, action, arg);
 }
 
@@ -678,7 +678,8 @@ static int mp_property_disc_title(void *ctx, struct m_property *prop,
         title = *(int*)arg;
         if (demux_stream_control(d, STREAM_CTRL_SET_CURRENT_TITLE, &title) < 0)
             return M_PROPERTY_NOT_IMPLEMENTED;
-        mpctx->stop_play = PT_RELOAD_DEMUXER;
+        if (!mpctx->stop_play)
+            mpctx->stop_play = PT_RELOAD_FILE;
         return M_PROPERTY_OK;
     }
     return M_PROPERTY_NOT_IMPLEMENTED;
@@ -757,10 +758,16 @@ static int mp_property_chapter(void *ctx, struct m_property *prop,
             if (mpctx->opts->keep_open) {
                 seek_to_last_frame(mpctx);
             } else {
-                mpctx->stop_play = PT_NEXT_ENTRY;
+                if (!mpctx->stop_play)
+                    mpctx->stop_play = PT_NEXT_ENTRY;
             }
         } else {
-            mp_seek_chapter(mpctx, chapter);
+            double pts = chapter_start_time(mpctx, chapter);
+            if (pts != MP_NOPTS_VALUE) {
+                queue_seek(mpctx, MPSEEK_ABSOLUTE, pts, MPSEEK_DEFAULT, true);
+                mpctx->last_chapter_seek = chapter;
+                mpctx->last_chapter_pts = pts;
+            }
         }
         return M_PROPERTY_OK;
     }
@@ -837,7 +844,8 @@ static int mp_property_edition(void *ctx, struct m_property *prop,
         edition = *(int *)arg;
         if (edition != demuxer->edition) {
             opts->edition_id = edition;
-            mpctx->stop_play = PT_RELOAD_DEMUXER;
+            if (!mpctx->stop_play)
+                mpctx->stop_play = PT_RELOAD_FILE;
         }
         return M_PROPERTY_OK;
     }
@@ -1872,6 +1880,7 @@ static int get_track_entry(int item, int action, void *arg, void *ctx)
                         .unavailable = !track->lang},
         {"albumart",    SUB_PROP_FLAG(track->attached_picture)},
         {"default",     SUB_PROP_FLAG(track->default_track)},
+        {"forced",      SUB_PROP_FLAG(track->forced_track)},
         {"external",    SUB_PROP_FLAG(track->is_external)},
         {"selected",    SUB_PROP_FLAG(track->selected)},
         {"external-filename", SUB_PROP_STR(track->external_filename),
@@ -2124,7 +2133,7 @@ static int probe_deint_filters(struct MPContext *mpctx)
     if (check_output_format(mpctx, IMGFMT_VAAPI) &&
         probe_deint_filter(mpctx, "vavpp"))
         return 0;
-    if (probe_deint_filter(mpctx, "yadif"))
+    if (probe_deint_filter(mpctx, "yadif:interlaced-only=yes"))
         return 0;
     return -1;
 }
@@ -2164,7 +2173,7 @@ static int mp_property_deinterlace(void *ctx, struct m_property *prop,
 {
     MPContext *mpctx = ctx;
     if (!mpctx->d_video || !mpctx->d_video->vfilter)
-        return M_PROPERTY_UNAVAILABLE;
+        return mp_property_generic_option(mpctx, prop, action, arg);
     switch (action) {
     case M_PROPERTY_GET:
         *(int *)arg = get_deinterlacing(mpctx) > 0;
@@ -2845,16 +2854,16 @@ static int mp_property_dvb_channel(void *ctx, struct m_property *prop,
     case M_PROPERTY_SET:
         mpctx->last_dvb_step = 1;
         r = prop_stream_ctrl(mpctx, STREAM_CTRL_DVB_SET_CHANNEL, arg);
-        if (r == M_PROPERTY_OK)
-            mpctx->stop_play = PT_RELOAD_DEMUXER;
+        if (r == M_PROPERTY_OK && !mpctx->stop_play)
+            mpctx->stop_play = PT_RELOAD_FILE;
         return r;
     case M_PROPERTY_SWITCH: {
         struct m_property_switch_arg *sa = arg;
         int dir = sa->inc >= 0 ? 1 : -1;
         mpctx->last_dvb_step = dir;
         r = prop_stream_ctrl(mpctx, STREAM_CTRL_DVB_STEP_CHANNEL, &dir);
-        if (r == M_PROPERTY_OK)
-            mpctx->stop_play = PT_RELOAD_DEMUXER;
+        if (r == M_PROPERTY_OK && !mpctx->stop_play)
+            mpctx->stop_play = PT_RELOAD_FILE;
         return r;
     }
     case M_PROPERTY_GET_TYPE:
@@ -2914,6 +2923,7 @@ static int get_playlist_entry(int item, int action, void *arg, void *ctx)
         {"filename",    SUB_PROP_STR(e->filename)},
         {"current",     SUB_PROP_FLAG(1), .unavailable = !current},
         {"playing",     SUB_PROP_FLAG(1), .unavailable = !playing},
+        {"title",       SUB_PROP_STR(e->title), .unavailable = !e->title},
         {0}
     };
 
@@ -3549,7 +3559,7 @@ static const char *const *const mp_event_property_change[] = {
       "demuxer-cache-duration", "demuxer-cache-idle", "paused-for-cache",
       "demuxer-cache-time"),
     E(MP_EVENT_WIN_RESIZE, "window-scale"),
-    E(MP_EVENT_WIN_STATE, "window-minimized", "display-names", "display-fps"),
+    E(MP_EVENT_WIN_STATE, "window-minimized", "display-names", "display-fps", "fullscreen"),
 };
 #undef E
 
@@ -4508,7 +4518,7 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
         if (!e)
             return -1;
         // Can't play a removed entry
-        if (mpctx->playlist->current == e)
+        if (mpctx->playlist->current == e && !mpctx->stop_play)
             mpctx->stop_play = PT_CURRENT_ENTRY;
         playlist_remove(mpctx->playlist, e);
         mp_notify_property(mpctx, "playlist");
@@ -4534,7 +4544,8 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
 
     case MP_CMD_STOP:
         playlist_clear(mpctx->playlist);
-        mpctx->stop_play = PT_STOP;
+        if (!mpctx->stop_play)
+            mpctx->stop_play = PT_STOP;
         break;
 
     case MP_CMD_SHOW_PROGRESS:

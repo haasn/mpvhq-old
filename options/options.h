@@ -43,7 +43,10 @@ typedef struct mp_vo_opts {
     float monitor_pixel_aspect;
     int force_window_position;
 
+    // vo_wayland, vo_drm
     struct sws_opts *sws_opts;
+    // vo_opengl, vo_opengl_cb
+    int hwdec_preload_api;
 } mp_vo_opts;
 
 struct mp_cache_opts {
@@ -197,6 +200,7 @@ typedef struct MPOpts {
     double demuxer_min_secs;
     char *audio_demuxer_name;
     char *sub_demuxer_name;
+    int force_seekable;
 
     double demuxer_min_secs_cache;
     int cache_pausing;

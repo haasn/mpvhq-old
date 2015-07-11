@@ -309,7 +309,7 @@ Suboptions passed to the client API are also subject to escaping. Using
 command line (but without shell processing of the string). Some options
 support passing values in a more structured way instead of flat strings, and
 can avoid the suboption parsing mess. For example, ``--vf`` supports
-``MPV_FORMAT_NODE``, which let's you pass suboptions as a nested data structure
+``MPV_FORMAT_NODE``, which lets you pass suboptions as a nested data structure
 of maps and arrays. (``--vo`` supports this in the same way, although this
 fact is undocumented.)
 
@@ -536,7 +536,7 @@ listed.
   frame couldn't be displayed on time. (``vo-drop-frame-count`` property.)
   If the decoder drops frames, the number of decoder-dropped frames is appended
   to the display as well, e.g.: ``Dropped: 4/34``. This happens only if
-  decoder-framedropping is enabled with the ``--framedrop`` options.
+  decoder frame dropping is enabled with the ``--framedrop`` options.
   (``drop-frame-count`` property.)
 - Cache state, e.g. ``Cache:  2s+134KB``. Visible if the stream cache is enabled.
   The first value shows the amount of video buffered in the demuxer in seconds,
@@ -567,13 +567,9 @@ PROTOCOLS
     you must mount the ISO file as filesystem, and point ``--bluray-device``
     to the mounted directory directly.
 
-``bdnav://[title][/device]``
-    Play a Blu-Ray disc, with navigation features enabled. This feature is
-    permanently experimental.
-
 ``dvd://[title|[starttitle]-endtitle][/device]`` ``--dvd-device=PATH``
-    Play a DVD. If you want dvdnav menus, use ``dvd://menu``. If no title
-    is given, the longest title is auto-selected.
+    Play a DVD. DVD menus are not supported. If no title is given, the longest
+    title is auto-selected.
 
     ``dvdnav://`` is an old alias for ``dvd://`` and does exactly the same
     thing.
@@ -617,6 +613,11 @@ PROTOCOLS
     A local path as URL. Might be useful in some special use-cases. Note that
     ``PATH`` itself should start with a third ``/`` to make the path an
     absolute path.
+
+``fd://123``
+    Read data from the given UNIX FD (for example 123). This is similar to
+    piping data to stdin via ``-``, but can use an arbitrary file descriptor.
+    Will not work correctly on MS Windows.
 
 ``edl://[edl specification as in edl-mpv.rst]``
     Stitch together parts of multiple files and play them.

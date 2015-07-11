@@ -170,11 +170,14 @@ Available audio output drivers are:
         setting in the ``Audio Devices`` dialog in the ``Audio MIDI Setup``
         utility. Note that this does not effect the selected speaker setup.
 
+    ``exclusive``
+        Use exclusive mode access. This merely redirects to
+        ``coreaudio_exclusive``, but should be preferred over using that AO
+        directly.
+
 ``coreaudio_exclusive`` (Mac OS X only)
     Native Mac OS X audio output driver using direct device access and
     exclusive mode (bypasses the sound server).
-
-    Supports only compressed formats (AC3 and DTS).
 
 ``openal``
     Experimental OpenAL audio output driver

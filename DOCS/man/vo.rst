@@ -75,12 +75,6 @@ Available video output drivers are:
         not responding quickly enough if video FPS is close to or higher than
         the display refresh rate.
 
-``x11`` (X11 only)
-    Shared memory video output driver without hardware acceleration that works
-    whenever X11 is present.
-
-    .. note:: This is a fallback only, and should not be normally used.
-
 ``vdpau`` (X11 only)
     Uses the VDPAU interface to display and optionally also decode video.
     Hardware decoding is used with ``--hwdec=vdpau``.
@@ -501,12 +495,11 @@ Available video output drivers are:
         The filter used for interpolating the temporal axis (frames). This is
         only used if ``interpolation`` is enabled. The only valid choices
         for ``tscale`` are separable convolution filters (use ``tscale=help``
-        to get a list). The default is ``oversample``.
+        to get a list). The default is ``robidoux``.
 
-        Note that the maximum supported filter radius is currently 3, and that
-        using filters with larger radius may introduce issues when pausing or
-        framestepping, proportional to the radius used. It is recommended to
-        stick to a radius of 1 or 2.
+        Note that the maximum supported filter radius is currently 3, due to
+        limitations in the number of video textures that can be loaded
+        simultaneously.
 
     ``dscale-radius``, ``cscale-radius``, ``tscale-radius``, etc.
         Set filter parameters for ``dscale``, ``cscale`` and ``tscale``,
@@ -622,7 +615,8 @@ Available video output drivers are:
         full screen).
         This may help getting more consistent frame intervals, especially with
         high-fps clips - which might also reduce dropped frames. Typically a
-        value of 1 should be enough since full screen may bypass the DWM.
+        value of ``windowed`` should be enough since full screen may bypass the
+        DWM.
 
         Windows only.
 

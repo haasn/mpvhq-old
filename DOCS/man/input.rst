@@ -561,7 +561,7 @@ Input Commands that are Possibly Subject to Change
     different memory region to prevent tearing).
 
     It is also possible to pass a raw memory address for use as bitmap memory
-    by passing a memory address as integer prefixed with a ``&`` character.
+    by passing a memory address as integer prefixed with an ``&`` character.
     Passing the wrong thing here will crash the player. This mode might be
     useful for use with libmpv. The ``offset`` parameter is simply added to the
     memory address (since mpv 0.8.0, ignored before).
@@ -1196,13 +1196,12 @@ Property list
 
     ::
 
-        MPV_FORMAT_NODE_ARRAY
-            MPV_FORMAT_NODE_MAP (for each track)
-                "format"            MPV_FORMAT_STRING
-                "samplerate"        MPV_FORMAT_INT64
-                "channels"          MPV_FORMAT_STRING
-                "channel-count"     MPV_FORMAT_INT64
-                "hr-channels"       MPV_FORMAT_STRING
+        MPV_FORMAT_NODE_MAP
+            "format"            MPV_FORMAT_STRING
+            "samplerate"        MPV_FORMAT_INT64
+            "channels"          MPV_FORMAT_STRING
+            "channel-count"     MPV_FORMAT_INT64
+            "hr-channels"       MPV_FORMAT_STRING
 
 ``audio-out-params``
     Same as ``audio-params``, but the format of the data written to the audio
@@ -1367,21 +1366,20 @@ Property list
 
     ::
 
-        MPV_FORMAT_NODE_ARRAY
-            MPV_FORMAT_NODE_MAP (for each track)
-                "pixelformat"       MPV_FORMAT_STRING
-                "w"                 MPV_FORMAT_INT64
-                "h"                 MPV_FORMAT_INT64
-                "dw"                MPV_FORMAT_INT64
-                "dh"                MPV_FORMAT_INT64
-                "aspect"            MPV_FORMAT_DOUBLE
-                "par"               MPV_FORMAT_DOUBLE
-                "colormatrix"       MPV_FORMAT_STRING
-                "colorlevels"       MPV_FORMAT_STRING
-                "primaries"         MPV_FORMAT_STRING
-                "chroma-location"   MPV_FORMAT_STRING
-                "rotate"            MPV_FORMAT_INT64
-                "stereo-in"         MPV_FORMAT_STRING
+        MPV_FORMAT_NODE_MAP
+            "pixelformat"       MPV_FORMAT_STRING
+            "w"                 MPV_FORMAT_INT64
+            "h"                 MPV_FORMAT_INT64
+            "dw"                MPV_FORMAT_INT64
+            "dh"                MPV_FORMAT_INT64
+            "aspect"            MPV_FORMAT_DOUBLE
+            "par"               MPV_FORMAT_DOUBLE
+            "colormatrix"       MPV_FORMAT_STRING
+            "colorlevels"       MPV_FORMAT_STRING
+            "primaries"         MPV_FORMAT_STRING
+            "chroma-location"   MPV_FORMAT_STRING
+            "rotate"            MPV_FORMAT_INT64
+            "stereo-in"         MPV_FORMAT_STRING
 
 ``dwidth``, ``dheight``
     Video display size. This is the video size after filters and aspect scaling
@@ -1535,6 +1533,11 @@ Property list
         been unloaded yet; in this case, ``current`` refers to the new
         selection. (Since mpv 0.7.0.)
 
+    ``playlist/N/title``
+        Name of the Nth entry. Only available if the playlist file contains
+        such fields, and only if mpv's parser supports it for the given
+        playlist format.
+
     When querying the property with the client API using ``MPV_FORMAT_NODE``,
     or with Lua ``mp.get_property_native``, this will return a mpv_node with
     the following contents:
@@ -1546,6 +1549,7 @@ Property list
                 "filename"  MPV_FORMAT_STRING
                 "current"   MPV_FORMAT_FLAG (might be missing; since mpv 0.7.0)
                 "playing"   MPV_FORMAT_FLAG (same)
+                "title"     MPV_FORMAT_STRING (optional)
 
 ``track-list``
     List of audio/video/sub tracks, current entry marked. Currently, the raw
@@ -1580,6 +1584,10 @@ Property list
 
     ``track-list/N/default``
         ``yes`` if the track has the default flag set in the file, ``no``
+        otherwise.
+
+    ``track-list/N/forced``
+        ``yes`` if the track has the forced flag set in the file, ``no``
         otherwise.
 
     ``track-list/N/codec``
@@ -1619,6 +1627,7 @@ Property list
                 "lang"              MPV_FORMAT_STRING
                 "albumart"          MPV_FORMAT_FLAG
                 "default"           MPV_FORMAT_FLAG
+                "forced"            MPV_FORMAT_FLAG
                 "external"          MPV_FORMAT_FLAG
                 "external-filename" MPV_FORMAT_STRING
                 "codec"             MPV_FORMAT_STRING

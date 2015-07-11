@@ -152,7 +152,7 @@ Available filters are:
     number (1.33). Alternatively, you may specify the exact display width and
     height desired. Note that this filter does *not* do any scaling itself; it
     just affects what later scalers (software or hardware) will do when
-    auto-scaling to correct aspect.
+    auto-scaling to the correct aspect.
 
     ``<w>,<h>``
         New display width and height.
@@ -518,7 +518,7 @@ Available filters are:
         video. The main purpose of setting ``mp`` to a chroma plane is to reduce
         CPU load and make pullup usable in realtime on slow machines.
 
-``yadif=[mode[:enabled=yes|no]]``
+``yadif=[mode:interlaced-only]``
     Yet another deinterlacing filter
 
     ``<mode>``
@@ -527,10 +527,10 @@ Available filters are:
         :frame-nospatial: Like ``frame`` but skips spatial interlacing check.
         :field-nospatial: Like ``field`` but skips spatial interlacing check.
 
-    ``<enabled>``
-        :yes: Filter is active (default).
-        :no:  Filter is not active, but can be activated with the ``D`` key
-              (or any other key that toggles the ``deinterlace`` property).
+    ``<interlaced-only>``
+        :no:  Deinterlace all frames (default).
+        :yes: Only deinterlace frames marked as interlaced (default if this
+              filter is inserted via ``deinterlace`` property).
 
     This filter, is automatically inserted when using the ``D`` key (or any
     other key that toggles the ``deinterlace`` property or when using the
@@ -822,6 +822,10 @@ Available filters are:
             depends on the GPU hardware, the GPU drivers, driver bugs, and
             mpv bugs.
 
+    ``<interlaced-only>``
+        :no:  Deinterlace all frames.
+        :yes: Only deinterlace frames marked as interlaced (default).
+
 ``vdpaupp``
     VDPAU video post processing. Works with ``--vo=vdpau`` and ``--vo=opengl``
     only. This filter is automatically inserted if deinterlacing is requested
@@ -866,11 +870,20 @@ Available filters are:
     ``pullup``
         Try to apply inverse telecine, needs motion adaptive temporal
         deinterlacing.
+    ``interlaced-only=<yes|no>``
+        If ``yes`` (default), only deinterlace frames marked as interlaced.
     ``hqscaling=<0-9>``
         0
             Use default VDPAU scaling (default).
         1-9
             Apply high quality VDPAU scaling (needs capable hardware).
+
+``vdpaurb``
+    VDPAU video read back. Works with ``--vo=vdpau`` and ``--vo=opengl`` only.
+    This filter will read back frames decoded by VDPAU so that other filters,
+    which are not normally compatible with VDPAU, can be used like normal.
+    This filter must be specified before ``vdpaupp`` in the filter chain if
+    ``vdpaupp`` is used.
 
 ``buffer=<num>``
     Buffer ``<num>`` frames in the filter chain. This filter is probably pretty

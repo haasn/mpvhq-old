@@ -36,6 +36,7 @@
 #include "video/fmt-conversion.h"
 #include "video/mp_image_pool.h"
 #include "video/hwdec.h"
+#include "video/d3d.h"
 #include "gpu_memcpy_sse4.h"
 
 // A minor evil.
@@ -310,8 +311,11 @@ static struct mp_image *dxva2_retrieve_image(struct lavc_ctx *s,
 
     IDirect3DSurface9_GetDesc(surface, &surfaceDesc);
 
+    if (surfaceDesc.Width < img->w || surfaceDesc.Height < img->h)
+        return img;
+
     struct mp_image *sw_img =
-        mp_image_pool_get(ctx->sw_pool, IMGFMT_NV12, img->w, img->h);
+        mp_image_pool_get(ctx->sw_pool, IMGFMT_NV12, surfaceDesc.Width, surfaceDesc.Height);
 
     if (!sw_img)
         return img;
@@ -324,6 +328,7 @@ static struct mp_image *dxva2_retrieve_image(struct lavc_ctx *s,
     }
 
     ctx->copy_nv12(sw_img, LockedRect.pBits, LockedRect.Pitch, surfaceDesc.Height);
+    mp_image_set_size(sw_img, img->w, img->h);
     mp_image_copy_attributes(sw_img, img);
 
     IDirect3DSurface9_UnlockRect(surface);
@@ -332,56 +337,33 @@ static struct mp_image *dxva2_retrieve_image(struct lavc_ctx *s,
     return sw_img;
 }
 
-static int dxva2_init(struct lavc_ctx *s)
+static int create_device(struct lavc_ctx *s)
 {
-    DXVA2Context *ctx;
+    DXVA2Context *ctx = s->hwdec_priv;
     pDirect3DCreate9      *createD3D = NULL;
-    pCreateDeviceManager9 *createDeviceManager = NULL;
     HRESULT hr;
     D3DPRESENT_PARAMETERS d3dpp = {0};
     D3DDISPLAYMODE        d3ddm;
-    unsigned resetToken = 0;
     UINT adapter = D3DADAPTER_DEFAULT;
 
-    ctx = talloc_zero(NULL, DXVA2Context);
-    if (!ctx)
-        return -1;
-    s->hwdec_priv = ctx;
-
-    ctx->log = mp_log_new(s, s->log, "dxva2");
-    ctx->sw_pool = talloc_steal(ctx, mp_image_pool_new(17));
-
-    if (av_get_cpu_flags() & AV_CPU_FLAG_SSE4) {
-        // Use a memcpy implementation optimised for copying from GPU memory
-        MP_DBG(ctx, "Using SSE4 memcpy\n");
-        ctx->copy_nv12 = copy_nv12_gpu_sse4;
-    } else {
-        // Use the CRT memcpy. This can be slower than software decoding.
-        MP_WARN(ctx, "Using fallback memcpy (slow)\n");
-        ctx->copy_nv12 = copy_nv12_fallback;
+    if (s->hwdec_info && s->hwdec_info->hwctx && s->hwdec_info->hwctx->d3d_ctx) {
+        ctx->d3d9device = s->hwdec_info->hwctx->d3d_ctx->d3d9_device;
+        if (ctx->d3d9device) {
+            IDirect3D9_AddRef(ctx->d3d9device);
+            MP_VERBOSE(ctx, "Using VO-supplied device %p.\n", ctx->d3d9device);
+            return 0;
+        }
     }
-
-    ctx->deviceHandle = INVALID_HANDLE_VALUE;
 
     ctx->d3dlib = LoadLibrary(L"d3d9.dll");
     if (!ctx->d3dlib) {
         MP_ERR(ctx, "Failed to load D3D9 library\n");
         goto fail;
     }
-    ctx->dxva2lib = LoadLibrary(L"dxva2.dll");
-    if (!ctx->dxva2lib) {
-        MP_ERR(ctx, "Failed to load DXVA2 library\n");
-        goto fail;
-    }
 
     createD3D = (pDirect3DCreate9 *)GetProcAddress(ctx->d3dlib, "Direct3DCreate9");
     if (!createD3D) {
         MP_ERR(ctx, "Failed to locate Direct3DCreate9\n");
-        goto fail;
-    }
-    createDeviceManager = (pCreateDeviceManager9 *)GetProcAddress(ctx->dxva2lib, "DXVA2CreateDirect3DDeviceManager9");
-    if (!createDeviceManager) {
-        MP_ERR(ctx, "Failed to locate DXVA2CreateDirect3DDeviceManager9\n");
         goto fail;
     }
 
@@ -405,6 +387,54 @@ static int dxva2_init(struct lavc_ctx *s)
                                  &d3dpp, &ctx->d3d9device);
     if (FAILED(hr)) {
         MP_ERR(ctx, "Failed to create Direct3D device\n");
+        goto fail;
+    }
+
+    return 0;
+
+fail:
+    return -1;
+}
+
+static int dxva2_init(struct lavc_ctx *s)
+{
+    DXVA2Context *ctx;
+    pCreateDeviceManager9 *createDeviceManager = NULL;
+    HRESULT hr;
+    unsigned resetToken = 0;
+
+    ctx = talloc_zero(NULL, DXVA2Context);
+    if (!ctx)
+        return -1;
+    s->hwdec_priv = ctx;
+
+    ctx->log = mp_log_new(s, s->log, "dxva2");
+    ctx->sw_pool = talloc_steal(ctx, mp_image_pool_new(17));
+
+    if (av_get_cpu_flags() & AV_CPU_FLAG_SSE4) {
+        // Use a memcpy implementation optimised for copying from GPU memory
+        MP_DBG(ctx, "Using SSE4 memcpy\n");
+        ctx->copy_nv12 = copy_nv12_gpu_sse4;
+    } else {
+        // Use the CRT memcpy. This can be slower than software decoding.
+        MP_WARN(ctx, "Using fallback memcpy (slow)\n");
+        ctx->copy_nv12 = copy_nv12_fallback;
+    }
+
+    ctx->deviceHandle = INVALID_HANDLE_VALUE;
+
+    ctx->dxva2lib = LoadLibrary(L"dxva2.dll");
+    if (!ctx->dxva2lib) {
+        MP_ERR(ctx, "Failed to load DXVA2 library\n");
+        goto fail;
+    }
+
+    if (create_device(s) < 0)
+        goto fail;
+
+    createDeviceManager = (pCreateDeviceManager9 *)GetProcAddress(ctx->dxva2lib, "DXVA2CreateDirect3DDeviceManager9");
+    if (!createDeviceManager) {
+        MP_ERR(ctx, "Failed to locate DXVA2CreateDirect3DDeviceManager9\n");
         goto fail;
     }
 
@@ -649,6 +679,7 @@ static int dxva2_init_decoder(struct lavc_ctx *s, int fmt, int w, int h)
 static int probe(struct vd_lavc_hwdec *hwdec, struct mp_hwdec_info *info,
                  const char *decoder)
 {
+    hwdec_request_api(info, "dxva2"); // we can do without too
     for (int i = 0; dxva2_modes[i].guid; i++) {
         const dxva2_mode *mode = &dxva2_modes[i];
         if (mp_codec_to_av_codec_id(decoder) == mode->codec)

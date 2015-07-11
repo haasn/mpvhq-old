@@ -142,7 +142,6 @@ static const struct gl_functions gl_functions[] = {
             DEF_FN(Flush),
             DEF_FN(GenBuffers),
             DEF_FN(GenTextures),
-            DEF_FN(GetBooleanv),
             DEF_FN(GetAttribLocation),
             DEF_FN(GetError),
             DEF_FN(GetIntegerv),
@@ -307,6 +306,15 @@ static const struct gl_functions gl_functions[] = {
             {0}
         },
     },
+    // These don't exist - they are for the sake of mpv internals, and libmpv
+    // interaction (see libmpv/opengl_cb.h).
+    {
+        .extension = "GL_MP_D3D_interfaces",
+        .functions = (const struct gl_function[]) {
+            DEF_FN(MPGetD3DInterface),
+            {0}
+        },
+    },
 };
 
 #undef FN_OFFS
@@ -464,6 +472,8 @@ void mpgl_load_functions2(GL *gl, void *(*get_fn)(void *ctx, const char *n),
                 if (loaded[i])
                     *funcptr = loaded[i];
             }
+            mp_verbose(log, "Loaded functions for %d/%s.\n", ver_core,
+                       section->extension ? section->extension : "builtin");
         }
     }
 
@@ -529,6 +539,7 @@ struct backend {
 };
 
 extern const struct mpgl_driver mpgl_driver_x11;
+extern const struct mpgl_driver mpgl_driver_x11egl;
 
 static const struct backend backends[] = {
 #if HAVE_RPI_GLES
@@ -549,7 +560,7 @@ static const struct backend backends[] = {
     {.driver = &mpgl_driver_x11},
 #endif
 #if HAVE_EGL_X11
-    {"x11egl", mpgl_set_backend_x11egl},
+    {.driver = &mpgl_driver_x11egl},
 #endif
 };
 

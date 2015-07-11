@@ -132,6 +132,8 @@ static void print_stream(struct MPContext *mpctx, struct track *t)
         APPEND(b, " --%s=%s", langopt, t->lang);
     if (t->default_track)
         APPEND(b, " (*)");
+    if (t->forced_track)
+        APPEND(b, " (f)");
     if (t->attached_picture)
         APPEND(b, " [P]");
     if (t->title)
@@ -383,6 +385,7 @@ static struct track *add_stream_track(struct MPContext *mpctx,
         .ff_index = stream->ff_index,
         .title = stream->title,
         .default_track = stream->default_track,
+        .forced_track = stream->forced_track,
         .attached_picture = stream->attached_picture != NULL,
         .lang = stream->lang,
         .under_timeline = under_timeline,
@@ -424,7 +427,8 @@ static int match_lang(char **langs, char *lang)
  * 1) track is external (no_default cancels this)
  * 1b) track was passed explicitly (is not an auto-loaded subtitle)
  * 2) earlier match in lang list
- * 3) track is marked default
+ * 3a) track is marked forced
+ * 3b) track is marked default
  * 4) attached picture, HLS bitrate
  * 5) lower track number
  * If select_fallback is not set, 5) is only used to determine whether a
@@ -444,6 +448,8 @@ static bool compare_track(struct track *t1, struct track *t2, char **langs,
     int l1 = match_lang(langs, t1->lang), l2 = match_lang(langs, t2->lang);
     if (l1 != l2)
         return l1 > l2;
+    if (t1->forced_track != t2->forced_track)
+        return t1->forced_track;
     if (t1->default_track != t2->default_track)
         return t1->default_track;
     if (t1->attached_picture != t2->attached_picture)
@@ -480,7 +486,8 @@ struct track *select_default_track(struct MPContext *mpctx, int order,
             pick = track;
     }
     if (pick && !select_fallback && !(pick->is_external && !pick->no_default)
-        && !match_lang(langs, pick->lang) && !pick->default_track)
+        && !match_lang(langs, pick->lang) && !pick->default_track
+        && !pick->forced_track)
         pick = NULL;
     if (pick && pick->attached_picture && !mpctx->opts->audio_display)
         pick = NULL;
@@ -1062,6 +1069,8 @@ static void play_current_file(struct MPContext *mpctx)
 
     MP_INFO(mpctx, "Playing: %s\n", mpctx->filename);
 
+reopen_file:
+
     assert(mpctx->stream == NULL);
     assert(mpctx->demuxer == NULL);
     assert(mpctx->d_audio == NULL);
@@ -1072,6 +1081,12 @@ static void play_current_file(struct MPContext *mpctx)
     if (process_open_hooks(mpctx) < 0)
         goto terminate_playback;
 
+    if (opts->stream_dump && opts->stream_dump[0]) {
+        if (stream_dump(mpctx, mpctx->stream_open_filename) < 0)
+            mpctx->error_playing = 1;
+        goto terminate_playback;
+    }
+
     int stream_flags = STREAM_READ;
     if (!opts->load_unsafe_playlists)
         stream_flags |= mpctx->playing->stream_flags;
@@ -1079,12 +1094,6 @@ static void play_current_file(struct MPContext *mpctx)
                                           stream_flags);
     if (!mpctx->stream)
         goto terminate_playback;
-
-    if (opts->stream_dump && opts->stream_dump[0]) {
-        stream_dump(mpctx);
-        mpctx->error_playing = 1;
-        goto terminate_playback;
-    }
 
     // Must be called before enabling cache.
     mp_nav_init(mpctx);
@@ -1097,8 +1106,6 @@ static void play_current_file(struct MPContext *mpctx)
         goto terminate_playback;
 
     stream_set_capture_file(mpctx->stream, opts->stream_capture);
-
-goto_reopen_demuxer: ;
 
     mp_nav_reset(mpctx);
 
@@ -1188,12 +1195,6 @@ goto_reopen_demuxer: ;
         !mpctx->current_track[0][STREAM_AUDIO])
     {
         MP_FATAL(mpctx, "No video or audio streams selected.\n");
-        struct demuxer *d = mpctx->demuxer;
-        if (d->stream->uncached_type == STREAMTYPE_DVB) {
-            int  dir = mpctx->last_dvb_step;
-            if (demux_stream_control(d, STREAM_CTRL_DVB_STEP_CHANNEL, &dir) > 0)
-                mpctx->stop_play = PT_RELOAD_DEMUXER;
-        }
         mpctx->error_playing = MPV_ERROR_NOTHING_TO_PLAY;
         goto terminate_playback;
     }
@@ -1206,7 +1207,8 @@ goto_reopen_demuxer: ;
     MP_VERBOSE(mpctx, "Starting playback...\n");
 
     if (mpctx->max_frames == 0) {
-        mpctx->stop_play = PT_NEXT_ENTRY;
+        if (!mpctx->stop_play)
+            mpctx->stop_play = PT_NEXT_ENTRY;
         mpctx->error_playing = 0;
         goto terminate_playback;
     }
@@ -1241,16 +1243,6 @@ goto_reopen_demuxer: ;
 
 terminate_playback:
 
-    if (mpctx->stop_play == PT_RELOAD_DEMUXER) {
-        mpctx->stop_play = KEEP_PLAYING;
-        mpctx->playback_initialized = false;
-        uninit_audio_chain(mpctx);
-        uninit_video_chain(mpctx);
-        uninit_sub_all(mpctx);
-        uninit_demuxer(mpctx);
-        goto goto_reopen_demuxer;
-    }
-
     process_unload_hooks(mpctx);
 
     mp_nav_destroy(mpctx);
@@ -1278,12 +1270,17 @@ terminate_playback:
     if (!opts->gapless_audio && !mpctx->encode_lavc_ctx)
         uninit_audio_out(mpctx);
 
+    mpctx->playback_initialized = false;
+
+    if (mpctx->stop_play == PT_RELOAD_FILE) {
+        mpctx->stop_play = KEEP_PLAYING;
+        goto reopen_file;
+    }
+
     m_config_restore_backups(mpctx->mconfig);
 
     talloc_free(mpctx->filtered_tags);
     mpctx->filtered_tags = NULL;
-
-    mpctx->playback_initialized = false;
 
     mp_notify(mpctx, MPV_EVENT_TRACKS_CHANGED, NULL);
 
@@ -1419,5 +1416,6 @@ void mp_set_playlist_entry(struct MPContext *mpctx, struct playlist_entry *e)
     assert(!e || playlist_entry_to_index(mpctx->playlist, e) >= 0);
     mpctx->playlist->current = e;
     mpctx->playlist->current_was_replaced = false;
-    mpctx->stop_play = PT_CURRENT_ENTRY;
+    if (!mpctx->stop_play)
+        mpctx->stop_play = PT_CURRENT_ENTRY;
 }

@@ -168,16 +168,22 @@ static void ca_fill_asbd_raw(AudioStreamBasicDescription *asbd, int mp_format,
 {
     asbd->mSampleRate       = samplerate;
     // Set "AC3" for other spdif formats too - unknown if that works.
-    asbd->mFormatID         = AF_FORMAT_IS_IEC61937(mp_format) ?
+    asbd->mFormatID         = af_fmt_is_spdif(mp_format) ?
                               kAudioFormat60958AC3 :
                               kAudioFormatLinearPCM;
     asbd->mChannelsPerFrame = num_channels;
-    asbd->mBitsPerChannel   = af_fmt2bits(mp_format);
+    asbd->mBitsPerChannel   = af_fmt_to_bytes(mp_format) * 8;
     asbd->mFormatFlags      = kAudioFormatFlagIsPacked;
 
-    if ((mp_format & AF_FORMAT_TYPE_MASK) == AF_FORMAT_F) {
+    int channels_per_buffer = num_channels;
+    if (af_fmt_is_planar(mp_format)) {
+        asbd->mFormatFlags |= kAudioFormatFlagIsNonInterleaved;
+        channels_per_buffer = 1;
+    }
+
+    if (af_fmt_is_float(mp_format)) {
         asbd->mFormatFlags |= kAudioFormatFlagIsFloat;
-    } else if (!af_fmt_unsigned(mp_format)) {
+    } else if (!af_fmt_is_unsigned(mp_format)) {
         asbd->mFormatFlags |= kAudioFormatFlagIsSignedInteger;
     }
 
@@ -186,7 +192,7 @@ static void ca_fill_asbd_raw(AudioStreamBasicDescription *asbd, int mp_format,
 
     asbd->mFramesPerPacket = 1;
     asbd->mBytesPerPacket = asbd->mBytesPerFrame =
-        asbd->mFramesPerPacket * asbd->mChannelsPerFrame *
+        asbd->mFramesPerPacket * channels_per_buffer *
         (asbd->mBitsPerChannel / 8);
 }
 
@@ -216,26 +222,27 @@ bool ca_asbd_equals(const AudioStreamBasicDescription *a,
                     const AudioStreamBasicDescription *b)
 {
     int flags = kAudioFormatFlagIsPacked | kAudioFormatFlagIsFloat |
-            kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsBigEndian;
+                kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsBigEndian;
+    bool spdif = ca_formatid_is_compressed(a->mFormatID) &&
+                 ca_formatid_is_compressed(b->mFormatID);
 
     return (a->mFormatFlags & flags) == (b->mFormatFlags & flags) &&
            a->mBitsPerChannel == b->mBitsPerChannel &&
            ca_normalize_formatid(a->mFormatID) ==
                 ca_normalize_formatid(b->mFormatID) &&
-           a->mBytesPerPacket == b->mBytesPerPacket &&
-           a->mChannelsPerFrame == b->mChannelsPerFrame &&
+           (spdif || a->mBytesPerPacket == b->mBytesPerPacket) &&
+           (spdif || a->mChannelsPerFrame == b->mChannelsPerFrame) &&
            a->mSampleRate == b->mSampleRate;
 }
 
 // Return the AF_FORMAT_* (AF_FORMAT_S16 etc.) corresponding to the asbd.
 int ca_asbd_to_mp_format(const AudioStreamBasicDescription *asbd)
 {
-    for (int n = 0; af_fmtstr_table[n].format; n++) {
-        int mp_format = af_fmtstr_table[n].format;
+    for (int fmt = 1; fmt < AF_FORMAT_COUNT; fmt++) {
         AudioStreamBasicDescription mp_asbd = {0};
-        ca_fill_asbd_raw(&mp_asbd, mp_format, 0, asbd->mChannelsPerFrame);
+        ca_fill_asbd_raw(&mp_asbd, fmt, asbd->mSampleRate, asbd->mChannelsPerFrame);
         if (ca_asbd_equals(&mp_asbd, asbd))
-            return mp_format;
+            return af_fmt_is_spdif(fmt) ? AF_FORMAT_S_AC3 : fmt;
     }
     return 0;
 }
@@ -334,7 +341,6 @@ bool ca_stream_supports_compressed(struct ao *ao, AudioStreamID stream)
 
     for (int i = 0; i < n_formats; i++) {
         AudioStreamBasicDescription asbd = formats[i].mFormat;
-        ca_print_asbd(ao, "supported format:", &(asbd));
         if (ca_formatid_is_compressed(asbd.mFormatID)) {
             talloc_free(formats);
             return true;
@@ -442,6 +448,28 @@ OSStatus ca_enable_mixing(struct ao *ao, AudioDeviceID device, bool changed)
     return noErr;
 }
 
+int64_t ca_get_device_latency_us(struct ao *ao, AudioDeviceID device)
+{
+    uint32_t latency_frames = 0;
+    uint32_t latency_properties[] = {
+        kAudioDevicePropertyLatency,
+        kAudioDevicePropertyBufferFrameSize,
+        kAudioDevicePropertySafetyOffset,
+    };
+    for (int n = 0; n < MP_ARRAY_SIZE(latency_properties); n++) {
+        uint32_t temp;
+        OSStatus err = CA_GET_O(device, latency_properties[n], &temp);
+        CHECK_CA_WARN("cannot get device latency");
+        if (err == noErr) {
+            latency_frames += temp;
+            MP_VERBOSE(ao, "Latency property %s: %d frames\n",
+                       fourcc_repr(latency_properties[n]), (int)temp);
+        }
+    }
+
+    return ca_frames_to_us(ao, latency_frames);
+}
+
 static OSStatus ca_change_format_listener(
     AudioObjectID object, uint32_t n_addresses,
     const AudioObjectPropertyAddress addresses[],
@@ -466,6 +494,10 @@ bool ca_change_physical_format_sync(struct ao *ao, AudioStreamID stream,
         return false;
     }
 
+    AudioStreamBasicDescription prev_format;
+    err = CA_GET(stream, kAudioStreamPropertyPhysicalFormat, &prev_format);
+    CHECK_CA_ERROR("can't get current physical format");
+
     /* Install the callback. */
     AudioObjectPropertyAddress p_addr = {
         .mSelector = kAudioStreamPropertyPhysicalFormat,
@@ -480,7 +512,7 @@ bool ca_change_physical_format_sync(struct ao *ao, AudioStreamID stream,
 
     /* Change the format. */
     err = CA_SET(stream, kAudioStreamPropertyPhysicalFormat, &change_format);
-    CHECK_CA_ERROR("error changing physical format");
+    CHECK_CA_WARN("error changing physical format");
 
     /* The AudioStreamSetProperty is not only asynchronous,
      * it is also not Atomic, in its behaviour. */
@@ -502,6 +534,14 @@ bool ca_change_physical_format_sync(struct ao *ao, AudioStreamID stream,
     }
 
     ca_print_asbd(ao, "actual format in use:", &actual_format);
+
+    if (!format_set) {
+        MP_WARN(ao, "changing physical format failed\n");
+        // Some drivers just fuck up and get into a broken state. Restore the
+        // old format in this case.
+        err = CA_SET(stream, kAudioStreamPropertyPhysicalFormat, &prev_format);
+        CHECK_CA_WARN("error restoring physical format");
+    }
 
     err = AudioObjectRemovePropertyListener(stream, &p_addr,
                                             ca_change_format_listener,

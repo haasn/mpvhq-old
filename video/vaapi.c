@@ -36,13 +36,11 @@ bool check_va_status(struct mp_log *log, VAStatus status, const char *msg)
 
 int va_get_colorspace_flag(enum mp_csp csp)
 {
-#if USE_VAAPI_COLORSPACE
     switch (csp) {
     case MP_CSP_BT_601:         return VA_SRC_BT601;
     case MP_CSP_BT_709:         return VA_SRC_BT709;
     case MP_CSP_SMPTE_240M:     return VA_SRC_SMPTE_240;
     }
-#endif
     return 0;
 }
 
@@ -185,8 +183,12 @@ struct va_surface {
     VASurfaceID id;
     int rt_format;
 
+    // The actually allocated surface size (needed for cropping).
+    // mp_images can have a smaller size than this, which means they are
+    // cropped down to a smaller size by removing right/bottom pixels.
+    int w, h;
+
     VAImage image;       // used for software decoding case
-    bool is_derived;     // is image derived by vaDeriveImage()?
 };
 
 VASurfaceID va_surface_id(struct mp_image *mpi)
@@ -227,7 +229,7 @@ static struct mp_image *alloc_surface(struct mp_vaapi_ctx *ctx, int rt_format,
     VASurfaceID id = VA_INVALID_ID;
     VAStatus status;
     va_lock(ctx);
-    status = vaCreateSurfaces(ctx->display, w, h, rt_format, 1, &id);
+    status = vaCreateSurfaces(ctx->display, rt_format, w, h, &id, 1, NULL, 0);
     va_unlock(ctx);
     if (!CHECK_VA_STATUS(ctx, "vaCreateSurfaces()"))
         return NULL;
@@ -240,6 +242,8 @@ static struct mp_image *alloc_surface(struct mp_vaapi_ctx *ctx, int rt_format,
         .ctx = ctx,
         .id = id,
         .rt_format = rt_format,
+        .w = w,
+        .h = h,
         .display = ctx->display,
         .image = { .image_id = VA_INVALID_ID, .buf = VA_INVALID_ID },
     };
@@ -258,7 +262,6 @@ static void va_surface_image_destroy(struct va_surface *surface)
         return;
     vaDestroyImage(surface->display, surface->image.image_id);
     surface->image.image_id = VA_INVALID_ID;
-    surface->is_derived = false;
 }
 
 static int va_surface_image_alloc(struct mp_image *img, VAImageFormat *format)
@@ -266,7 +269,6 @@ static int va_surface_image_alloc(struct mp_image *img, VAImageFormat *format)
     struct va_surface *p = va_surface_in_mp_image(img);
     if (!format || !p)
         return -1;
-    VADisplay *display = p->display;
 
     if (p->image.image_id != VA_INVALID_ID &&
         p->image.format.fourcc == format->fourcc)
@@ -277,26 +279,10 @@ static int va_surface_image_alloc(struct mp_image *img, VAImageFormat *format)
 
     va_surface_image_destroy(p);
 
-    VAStatus status = vaDeriveImage(display, p->id, &p->image);
-    if (status == VA_STATUS_SUCCESS) {
-        /* vaDeriveImage() is supported, check format */
-        if (p->image.format.fourcc == format->fourcc &&
-            p->image.width == img->w && p->image.height == img->h)
-        {
-            p->is_derived = true;
-            MP_VERBOSE(p->ctx, "Using vaDeriveImage()\n");
-        } else {
-            vaDestroyImage(p->display, p->image.image_id);
-            status = VA_STATUS_ERROR_OPERATION_FAILED;
-        }
-    }
-    if (status != VA_STATUS_SUCCESS) {
+    VAStatus status = vaCreateImage(p->display, format, p->w, p->h, &p->image);
+    if (!CHECK_VA_STATUS(p->ctx, "vaCreateImage()")) {
         p->image.image_id = VA_INVALID_ID;
-        status = vaCreateImage(p->display, format, img->w, img->h, &p->image);
-        if (!CHECK_VA_STATUS(p->ctx, "vaCreateImage()")) {
-            p->image.image_id = VA_INVALID_ID;
-            r = -1;
-        }
+        r = -1;
     }
 
     va_unlock(p->ctx);
@@ -374,19 +360,19 @@ int va_surface_upload(struct mp_image *va_dst, struct mp_image *sw_src)
     struct mp_image img;
     if (!va_image_map(p->ctx, &p->image, &img))
         return -1;
+    assert(sw_src->w <= img.w && sw_src->h <= img.h);
+    mp_image_set_size(&img, sw_src->w, sw_src->h); // copy only visible part
     mp_image_copy(&img, sw_src);
     va_image_unmap(p->ctx, &p->image);
 
-    if (!p->is_derived) {
-        va_lock(p->ctx);
-        VAStatus status = vaPutImage2(p->display, p->id,
-                                      p->image.image_id,
-                                      0, 0, sw_src->w, sw_src->h,
-                                      0, 0, sw_src->w, sw_src->h);
-        va_unlock(p->ctx);
-        if (!CHECK_VA_STATUS(p->ctx, "vaPutImage()"))
-            return -1;
-    }
+    va_lock(p->ctx);
+    VAStatus status = vaPutImage(p->display, p->id,
+                                 p->image.image_id,
+                                 0, 0, sw_src->w, sw_src->h,
+                                 0, 0, sw_src->w, sw_src->h);
+    va_unlock(p->ctx);
+    if (!CHECK_VA_STATUS(p->ctx, "vaPutImage()"))
+        return -1;
 
     return 0;
 }
@@ -405,24 +391,25 @@ static struct mp_image *try_download(struct mp_image *src,
         !va_fourcc_to_imgfmt(image->format.fourcc))
         return NULL;
 
-    if (!p->is_derived) {
-        va_lock(p->ctx);
-        status = vaGetImage(p->display, p->id, 0, 0,
-                            src->w, src->h, image->image_id);
-        va_unlock(p->ctx);
-        if (status != VA_STATUS_SUCCESS)
-            return NULL;
-    }
+    va_lock(p->ctx);
+    status = vaGetImage(p->display, p->id, 0, 0,
+                        p->w, p->h, image->image_id);
+    va_unlock(p->ctx);
+    if (status != VA_STATUS_SUCCESS)
+        return NULL;
 
     struct mp_image *dst = NULL;
     struct mp_image tmp;
     if (va_image_map(p->ctx, image, &tmp)) {
+        assert(src->w <= tmp.w && src->h <= tmp.h);
+        mp_image_set_size(&tmp, src->w, src->h); // copy only visible part
         dst = mp_image_pool_get(pool, tmp.imgfmt, tmp.w, tmp.h);
-        if (dst)
+        if (dst) {
             mp_image_copy(dst, &tmp);
+            mp_image_copy_attributes(dst, src);
+        }
         va_image_unmap(p->ctx, image);
     }
-    mp_image_copy_attributes(dst, src);
     return dst;
 }
 

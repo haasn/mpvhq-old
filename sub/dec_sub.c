@@ -156,11 +156,13 @@ void sub_set_extradata(struct dec_sub *sub, void *data, int data_len)
 }
 
 void sub_set_ass_renderer(struct dec_sub *sub, struct ass_library *ass_library,
-                          struct ass_renderer *ass_renderer)
+                          struct ass_renderer *ass_renderer,
+                          pthread_mutex_t *ass_lock)
 {
     pthread_mutex_lock(&sub->lock);
     sub->init_sd.ass_library = ass_library;
     sub->init_sd.ass_renderer = ass_renderer;
+    sub->init_sd.ass_lock = ass_lock;
     pthread_mutex_unlock(&sub->lock);
 }
 
@@ -230,6 +232,7 @@ void sub_init_from_sh(struct dec_sub *sub, struct sh_stream *sh)
             .extradata_len = sd->output_extradata_len,
             .ass_library = sub->init_sd.ass_library,
             .ass_renderer = sub->init_sd.ass_renderer,
+            .ass_lock = sub->init_sd.ass_lock,
         };
     }
 

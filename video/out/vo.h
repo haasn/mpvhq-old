@@ -140,6 +140,8 @@ struct voctrl_get_equalizer_args {
 // VO does framedrop itself (vo_vdpau). Untimed/encoding VOs never drop.
 #define VO_CAP_FRAMEDROP 2
 
+#define VO_MAX_FUTURE_FRAMES 10
+
 struct vo;
 struct osd_state;
 struct mp_image;
@@ -152,10 +154,38 @@ struct vo_extra {
     struct mpv_opengl_cb_context *opengl_cb_context;
 };
 
-struct frame_timing {
+struct vo_frame {
+    // If > 0, realtime when frame should be shown, in mp_time_us() units.
+    // If 0, present immediately.
     int64_t pts;
+    // Approximate frame duration, in us.
+    int duration;
+    // Realtime of estimated previous and next vsync events.
     int64_t next_vsync;
     int64_t prev_vsync;
+    // "ideal" display time within the vsync
+    int64_t vsync_offset;
+    // Set if the current frame is repeated from the previous. It's guaranteed
+    // that the current is the same as the previous one, even if the image
+    // pointer is different.
+    // The repeat flag is additionally set if the OSD does not need to be
+    // redrawn.
+    bool redraw, repeat;
+    // The frame is not in movement - e.g. redrawing while paused.
+    bool still;
+    // The current frame to be drawn.
+    // Warning: When OSD should be redrawn in --force-window --idle mode, this
+    //          can be NULL. The VO should draw a black background, OSD on top.
+    struct mp_image *current;
+    // List of future images, starting with the next one. This does not
+    // care about repeated frames - it simply contains the next real frames.
+    // vo_set_queue_params() sets how many future frames this should include.
+    // The actual number of frames delivered to the VO can be lower.
+    // frames[0] is current, frames[1] is the next frame.
+    // Note that some future frames may never be sent as current frame to the
+    // VO if frames are dropped.
+    int num_frames;
+    struct mp_image *frames[VO_MAX_FUTURE_FRAMES + 1];
 };
 
 struct vo_driver {
@@ -202,30 +232,20 @@ struct vo_driver {
      * mpi belongs to the VO; the VO must free it eventually.
      *
      * This also should draw the OSD.
+     *
+     * Deprecated for draw_frame. A VO should have only either callback set.
      */
     void (*draw_image)(struct vo *vo, struct mp_image *mpi);
 
-    /* Like draw image, but is called before every vsync with timing
-     * information
+    /* Render the given frame. Note that this is also called when repeating
+     * or redrawing frames.
      */
-    void (*draw_image_timed)(struct vo *vo, struct mp_image *mpi,
-                             struct frame_timing *t);
+    void (*draw_frame)(struct vo *vo, struct vo_frame *frame);
 
     /*
      * Blit/Flip buffer to the screen. Must be called after each frame!
      */
     void (*flip_page)(struct vo *vo);
-
-    /*
-     * Timed version of flip_page (optional).
-     * pts_us is the frame presentation time, linked to mp_time_us().
-     * pts_us is 0 if the frame should be presented immediately.
-     * duration is estimated time in us until the next frame is shown.
-     * duration is -1 if it is unknown or unset (also: disable framedrop).
-     * If the VO does manual framedropping, VO_CAP_FRAMEDROP should be set.
-     * Returns 1 on display, or 0 if the frame was dropped.
-     */
-    int (*flip_page_timed)(struct vo *vo, int64_t pts_us, int duration);
 
     /* These optional callbacks can be provided if the GUI framework used by
      * the VO requires entering a message loop for receiving events, does not
@@ -302,8 +322,7 @@ int vo_reconfig(struct vo *vo, struct mp_image_params *p, int flags);
 
 int vo_control(struct vo *vo, uint32_t request, void *data);
 bool vo_is_ready_for_frame(struct vo *vo, int64_t next_pts);
-void vo_queue_frame(struct vo *vo, struct mp_image *image,
-                    int64_t pts_us, int64_t duration);
+void vo_queue_frame(struct vo *vo, struct vo_frame *frame);
 void vo_wait_frame(struct vo *vo);
 bool vo_still_displaying(struct vo *vo);
 bool vo_has_frame(struct vo *vo);
@@ -318,8 +337,9 @@ void vo_query_formats(struct vo *vo, uint8_t *list);
 void vo_event(struct vo *vo, int event);
 int vo_query_and_reset_events(struct vo *vo, int events);
 struct mp_image *vo_get_current_frame(struct vo *vo);
-
-void vo_set_flip_queue_params(struct vo *vo, int64_t offset_us, bool vsync_timed);
+void vo_set_queue_params(struct vo *vo, int64_t offset_us, bool vsync_timed,
+                         int num_future_frames);
+int vo_get_num_future_frames(struct vo *vo);
 int64_t vo_get_vsync_interval(struct vo *vo);
 double vo_get_display_fps(struct vo *vo);
 
@@ -336,5 +356,7 @@ int lookup_keymap_table(const struct mp_keymap *map, int key);
 struct mp_osd_res;
 void vo_get_src_dst_rects(struct vo *vo, struct mp_rect *out_src,
                           struct mp_rect *out_dst, struct mp_osd_res *out_osd);
+
+struct vo_frame *vo_frame_ref(struct vo_frame *frame);
 
 #endif /* MPLAYER_VIDEO_OUT_H */
