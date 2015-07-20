@@ -162,23 +162,6 @@ static int rate_from_speed(int rate, double speed)
     return lrint(rate * speed);
 }
 
-static bool needs_lavrctx_reconfigure(struct af_resample *s,
-                                      struct mp_audio *in,
-                                      struct mp_audio *out)
-{
-    return s->ctx.in_rate_af  != in->rate ||
-           s->ctx.in_format   != in->format ||
-           !mp_chmap_equals(&s->ctx.in_channels, &in->channels) ||
-           s->ctx.out_rate    != out->rate ||
-           s->ctx.out_format  != out->format ||
-           !mp_chmap_equals(&s->ctx.out_channels, &out->channels) ||
-           s->ctx.filter_size != s->opts.filter_size ||
-           s->ctx.phase_shift != s->opts.phase_shift ||
-           s->ctx.linear      != s->opts.linear ||
-           s->ctx.cutoff      != s->opts.cutoff;
-
-}
-
 // Return the format libavresample should convert to, given the final output
 // format mp_format. In some cases (S24) we perform an extra conversion step,
 // and signal here what exactly libavresample should output. It will be the
@@ -213,7 +196,7 @@ static void transpose_order(int *map, int num)
 }
 
 static int configure_lavrr(struct af_instance *af, struct mp_audio *in,
-                           struct mp_audio *out)
+                           struct mp_audio *out, bool verbose)
 {
     struct af_resample *s = af->priv;
 
@@ -275,12 +258,9 @@ static int configure_lavrr(struct af_instance *af, struct mp_audio *in,
     mp_chmap_from_lavc(&in_lavc, in_ch_layout);
     mp_chmap_from_lavc(&out_lavc, out_ch_layout);
 
-    char msg[80];
-    snprintf(msg, sizeof(msg), "Remix: %s -> %s\n", mp_chmap_to_str(&in_lavc),
-                                                    mp_chmap_to_str(&out_lavc));
-    if (strcmp(s->remix_msg, msg) != 0) {
-        MP_VERBOSE(af, "%s", msg);
-        snprintf(s->remix_msg, sizeof(s->remix_msg), "%s", msg);
+    if (verbose && !mp_chmap_equals(&in_lavc, &out_lavc)) {
+        MP_VERBOSE(af, "Remix: %s -> %s\n", mp_chmap_to_str(&in_lavc),
+                                            mp_chmap_to_str(&out_lavc));
     }
 
     if (in_lavc.num != map_in.num) {
@@ -345,9 +325,7 @@ static int configure_lavrr(struct af_instance *af, struct mp_audio *in,
     //  * Also, the input channel layout must have already been set.
     avresample_set_channel_mapping(s->avrctx, s->reorder_in);
 
-    if (avresample_open(s->avrctx) < 0 ||
-        avresample_open(s->avrctx_out) < 0)
-    {
+    if (avresample_open(s->avrctx) < 0 || avresample_open(s->avrctx_out) < 0) {
         MP_ERR(af, "Cannot open Libavresample Context. \n");
         goto error;
     }
@@ -390,8 +368,8 @@ static int control(struct af_instance *af, int cmd, void *arg)
                 mp_chmap_equals(&in->channels, &orig_in.channels))
                 ? AF_OK : AF_FALSE;
 
-        if (r == AF_OK && needs_lavrctx_reconfigure(s, in, out))
-            r = configure_lavrr(af, in, out);
+        if (r == AF_OK)
+            r = configure_lavrr(af, in, out, true);
         return r;
     }
     case AF_CONTROL_SET_FORMAT: {
@@ -417,7 +395,7 @@ static int control(struct af_instance *af, int cmd, void *arg)
             // in the resampler.
             af->filter_frame(af, NULL);
             // Reinitialize resampler.
-            configure_lavrr(af, &af->fmt_in, &af->fmt_out);
+            configure_lavrr(af, &af->fmt_in, &af->fmt_out, false);
         }
         return AF_OK;
     }

@@ -223,8 +223,8 @@ const m_option_t mp_opts[] = {
     OPT_CHOICE("audio-display", audio_display, 0,
                ({"no", 0}, {"attachment", 1})),
 
-    OPT_CHOICE("hls-bitrate", hls_bitrate, 0,
-               ({"no", 0}, {"min", 1}, {"max", 2})),
+    OPT_CHOICE_OR_INT("hls-bitrate", hls_bitrate, 0, 0, INT_MAX,
+                      ({"no", -1}, {"min", 0}, {"max", INT_MAX})),
 
     OPT_STRINGLIST("display-tags*", display_tags, 0),
 
@@ -331,6 +331,7 @@ const m_option_t mp_opts[] = {
     OPT_FLAG("sub-visibility", sub_visibility, 0),
     OPT_FLAG("sub-forced-only", forced_subs_only, 0),
     OPT_FLAG("stretch-dvd-subs", stretch_dvd_subs, 0),
+    OPT_FLAG("stretch-image-subs-to-screen", stretch_image_subs, 0),
     OPT_FLAG("sub-fix-timing", sub_fix_timing, 0),
     OPT_CHOICE("sub-auto", sub_auto, 0,
                ({"no", -1}, {"exact", 0}, {"fuzzy", 1}, {"all", 2})),
@@ -735,7 +736,7 @@ const struct MPOpts mp_default_opts = {
     .demuxer_min_secs = 1.0,
     .network_rtsp_transport = 2,
     .network_timeout = 0.0,
-    .hls_bitrate = 2,
+    .hls_bitrate = INT_MAX,
     .demuxer_min_secs_cache = 10.0,
     .cache_pausing = 1,
     .chapterrange = {-1, -1},

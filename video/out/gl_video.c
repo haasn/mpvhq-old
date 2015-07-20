@@ -40,6 +40,7 @@
 #include "aspect.h"
 #include "bitmap_packer.h"
 #include "dither.h"
+#include "vo.h"
 
 // Pixel width of 1D lookup textures.
 #define LOOKUP_TEXTURE_SIZE 256
@@ -109,7 +110,6 @@ struct texplane {
 struct video_image {
     struct texplane planes[4];
     bool image_flipped;
-    bool needs_upload;
     struct mp_image *mpi;       // original input image
 };
 
@@ -359,7 +359,7 @@ const struct gl_video_opts gl_video_opts_hq_def = {
         {{"spline36",   .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // scale
         {{"mitchell",   .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // dscale
         {{"spline36",   .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // cscale
-        {{"robidoux",   .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // tscale
+        {{"oversample", .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // tscale
     },
     .alpha_mode = 2,
     .background = {0, 0, 0, 255},
@@ -509,8 +509,7 @@ static void uninit_rendering(struct gl_video *p);
 static void uninit_scaler(struct gl_video *p, struct scaler *scaler);
 static void check_gl_features(struct gl_video *p);
 static bool init_format(int fmt, struct gl_video *init);
-static void gl_video_upload_image(struct gl_video *p);
-static void gl_video_set_image(struct gl_video *p, struct mp_image *mpi);
+static void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi);
 
 #define GLSL(x) gl_sc_add(p->sc, #x "\n");
 #define GLSLF(...) gl_sc_addf(p->sc, __VA_ARGS__)
@@ -2006,14 +2005,9 @@ static void pass_draw_osd(struct gl_video *p, int draw_flags, double pts,
 }
 
 // The main rendering function, takes care of everything up to and including
-// upscaling
-static void pass_render_frame(struct gl_video *p, struct mp_image *img)
+// upscaling. p->image is rendered.
+static void pass_render_frame(struct gl_video *p)
 {
-    if (img) {
-        gl_video_set_image(p, img);
-        gl_video_upload_image(p);
-    }
-
     p->use_linear = p->opts.linear_scaling || p->opts.sigmoid_upscaling;
     p->use_indirect = false; // set to true as needed by pass_*
     pass_read_video(p);
@@ -2106,9 +2100,10 @@ static void gl_video_interpolate_frame(struct gl_video *p, struct vo_frame *t,
     // First of all, figure out if we have a frame availble at all, and draw
     // it manually + reset the queue if not
     if (p->surfaces[p->surface_now].pts == MP_NOPTS_VALUE) {
-        pass_render_frame(p, t->current);
+        gl_video_upload_image(p, t->current);
+        pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[p->surface_now].fbotex,
-                        vp_w, vp_h, 0, FBOTEX_FUZZY);
+                        vp_w, vp_h, 0, 0);
         p->surfaces[p->surface_now].pts = p->image.mpi->pts;
         p->surface_idx = p->surface_now;
     }
@@ -2160,14 +2155,16 @@ static void gl_video_interpolate_frame(struct gl_video *p, struct vo_frame *t,
             break;
 
         struct mp_image *f = t->frames[i];
-        if (!f || f->pts == MP_NOPTS_VALUE)
+        if (!mp_image_params_equal(&f->params, &p->real_image_params) ||
+            f->pts == MP_NOPTS_VALUE)
             continue;
 
         if (f->pts > p->surfaces[p->surface_idx].pts) {
             MP_STATS(p, "new-pts");
-            pass_render_frame(p, f);
+            gl_video_upload_image(p, f);
+            pass_render_frame(p);
             finish_pass_fbo(p, &p->surfaces[surface_dst].fbotex,
-                            vp_w, vp_h, 0, FBOTEX_FUZZY);
+                            vp_w, vp_h, 0, 0);
             p->surfaces[surface_dst].pts = f->pts;
             p->surface_idx = surface_dst;
             surface_dst = fbosurface_wrap(surface_dst+1);
@@ -2222,7 +2219,7 @@ static void gl_video_interpolate_frame(struct gl_video *p, struct vo_frame *t,
             }
         }
 
-        // Non-oversample case
+        // Blend the frames together
         if (oversample) {
             double vsync_dist = (t->next_vsync - t->prev_vsync)/1e6
                                 / (pts_nxt - pts_now),
@@ -2282,7 +2279,9 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame, int fbo)
             gl_video_interpolate_frame(p, frame, fbo);
         } else {
             // Skip interpolation if there's nothing to be done
-            pass_render_frame(p, frame->redraw ? NULL : frame->current);
+            if (!frame->redraw || !vimg->mpi)
+                gl_video_upload_image(p, frame->current);
+            pass_render_frame(p);
             pass_draw_to_screen(p, fbo);
         }
     }
@@ -2352,33 +2351,22 @@ static bool get_image(struct gl_video *p, struct mp_image *mpi)
     return true;
 }
 
-static void gl_video_set_image(struct gl_video *p, struct mp_image *mpi)
-{
-    assert(mpi);
-
-    struct video_image *vimg = &p->image;
-    talloc_free(vimg->mpi);
-    vimg->mpi = mp_image_new_ref(mpi);
-    vimg->needs_upload = true;
-
-    if (!vimg->mpi)
-        abort();
-
-    p->osd_pts = mpi->pts;
-}
-
-static void gl_video_upload_image(struct gl_video *p)
+static void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi)
 {
     GL *gl = p->gl;
-
     struct video_image *vimg = &p->image;
-    struct mp_image *mpi = vimg->mpi;
 
-    if (p->hwdec_active || !mpi || !vimg->needs_upload)
-        return;
+    mpi = mp_image_new_ref(mpi);
+    if (!mpi)
+        abort();
 
-    vimg->needs_upload = false;
+    talloc_free(vimg->mpi);
+    vimg->mpi = mpi;
+    p->osd_pts = mpi->pts;
     p->frames_uploaded++;
+
+    if (p->hwdec_active)
+        return;
 
     assert(mpi->num_planes == p->plane_count);
 
@@ -2841,8 +2829,7 @@ static char **dup_str_array(void *parent, char **src)
 
 // Set the options, and possibly update the filter chain too.
 // Note: assumes all options are valid and verified by the option parser.
-void gl_video_set_options(struct gl_video *p, struct gl_video_opts *opts,
-                          int *queue_size)
+void gl_video_set_options(struct gl_video *p, struct gl_video_opts *opts)
 {
     talloc_free(p->opts.source_shader);
     talloc_free(p->opts.scale_shader);
@@ -2856,21 +2843,6 @@ void gl_video_set_options(struct gl_video *p, struct gl_video_opts *opts,
             (char *)handle_scaler_opt(p->opts.scaler[n].kernel.name, n==3);
     }
 
-    // Figure out an adequate size for the interpolation queue. The larger
-    // the radius, the earlier we need to queue frames.
-    if (queue_size && p->opts.interpolation) {
-        const struct filter_kernel *kernel =
-            mp_find_filter_kernel(p->opts.scaler[3].kernel.name);
-        if (kernel) {
-            double radius = kernel->f.radius;
-            radius = radius > 0 ? radius : p->opts.scaler[3].radius;
-            *queue_size = 1 + ceil(radius);
-        } else {
-            // Oversample case
-            *queue_size = 2;
-        }
-    }
-
     p->opts.source_shader = talloc_strdup(p, p->opts.source_shader);
     p->opts.scale_shader = talloc_strdup(p, p->opts.scale_shader);
     p->opts.pre_shaders = dup_str_array(p, p->opts.pre_shaders);
@@ -2878,6 +2850,28 @@ void gl_video_set_options(struct gl_video *p, struct gl_video_opts *opts,
 
     check_gl_features(p);
     uninit_rendering(p);
+}
+
+void gl_video_configure_queue(struct gl_video *p, struct vo *vo)
+{
+    int queue_size = 0;
+
+    // Figure out an adequate size for the interpolation queue. The larger
+    // the radius, the earlier we need to queue frames.
+    if (p->opts.interpolation) {
+        const struct filter_kernel *kernel =
+            mp_find_filter_kernel(p->opts.scaler[3].kernel.name);
+        if (kernel) {
+            double radius = kernel->f.radius;
+            radius = radius > 0 ? radius : p->opts.scaler[3].radius;
+            queue_size = 1 + ceil(radius);
+        } else {
+            // Oversample case
+            queue_size = 2;
+        }
+    }
+
+    vo_set_queue_params(vo, 0, p->opts.interpolation, queue_size);
 }
 
 struct mp_csp_equalizer *gl_video_eq_ptr(struct gl_video *p)

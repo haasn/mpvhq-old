@@ -20,6 +20,9 @@ Interface changes
 ::
 
  --- mpv 0.10.0 will be released ---
+    - add ``track-list/N/audio-channels`` property
+    - change --screenshot-tag-colorspace default value
+    - add --stretch-image-subs-to-screen
     - add "playlist/N/title" property
     - add --video-stereo-mode=no to disable auto-conversions
     - add --force-seekable, and change default seekability in some cases

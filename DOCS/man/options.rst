@@ -1397,6 +1397,18 @@ Subtitles
 
     Disabled by default.
 
+``--stretch-image-subs-to-screen=<yes|no>``
+    Stretch DVD and other image subtitles to the screen, ignoring the video
+    margins. This has a similar effect as ``--sub-use-margins`` for text
+    subtitles, except that the text itself will be stretched, not only just
+    repositioned. (At least in general it is unavoidable, as an image bitmap
+    can in theory consist of a single bitmap covering the whole screen, and
+    the player won't know where exactly the text parts are located.)
+
+    This option does not display subtitles correctly. Use with care.
+
+    Disabled by default.
+
 ``--sub-ass``, ``--no-sub-ass``
     Render ASS subtitles natively (enabled by default).
 
@@ -2617,7 +2629,7 @@ Screenshot
 
     Note that not all formats are supported.
 
-    Default: ``yes``.
+    Default: ``no``.
 
 ``--screenshot-high-bit-depth=<yes|no>``
     If possible, write screenshots with a bit depth similar to the source
@@ -2672,7 +2684,7 @@ Screenshot
 
         .. note::
 
-            This is a simple way for getting unique per-frame timestamps. Frame
+            This is a simple way for getting unique per-frame timestamps. (Frame
             numbers would be more intuitive, but are not easily implementable
             because container formats usually use time stamps for identifying
             frames.)
@@ -3201,7 +3213,7 @@ Network
     network transport when playing ``rtsp://...`` URLs. The value ``lavf``
     leaves the decision to libavformat.
 
-``--hls-bitrate=<no|min|max>``
+``--hls-bitrate=<no|min|max|<rate>>``
     If HLS streams are played, this option controls what streams are selected
     by default. The option allows the following parameters:
 
@@ -3209,6 +3221,9 @@ Network
                 first audio/video streams it can find.
     :min:       Pick the streams with the lowest bitrate.
     :max:       Same, but highest bitrate. (Default.)
+
+    Additionally, if the option is a number, the stream with the highest rate
+    equal or below the option value is selected.
 
     The bitrate as used is sent by the server, and there's no guarantee it's
     actually meaningful.
