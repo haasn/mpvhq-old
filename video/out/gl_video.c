@@ -333,6 +333,7 @@ static const struct packed_fmt_entry mp_packed_formats[] = {
 const struct gl_video_opts gl_video_opts_def = {
     .dither_depth = -1,
     .dither_size = 6,
+    .temporal_dither_period = 1,
     .fbo_format = GL_RGBA16,
     .sigmoid_center = 0.75,
     .sigmoid_slope = 6.5,
@@ -350,6 +351,7 @@ const struct gl_video_opts gl_video_opts_def = {
 const struct gl_video_opts gl_video_opts_hq_def = {
     .dither_depth = 0,
     .dither_size = 6,
+    .temporal_dither_period = 1,
     .fbo_format = GL_RGBA16,
     .fancy_downscaling = 1,
     .sigmoid_center = 0.75,
@@ -372,6 +374,7 @@ const struct gl_video_opts gl_video_opts_vhq_def = {
     .dither_depth = 0,
     .dither_size = 6,
     .temporal_dither = 1,
+    .temporal_dither_period = 1,
     .fbo_format = GL_RGBA16,
     .fancy_downscaling = 1,
     .sigmoid_center = 0.75,
@@ -463,6 +466,7 @@ const struct m_sub_options gl_video_conf = {
                    ({"fruit", 0}, {"ordered", 1}, {"no", -1})),
         OPT_INTRANGE("dither-size-fruit", dither_size, 0, 2, 8),
         OPT_FLAG("temporal-dither", temporal_dither, 0),
+        OPT_INTRANGE("temporal-dither-period", temporal_dither_period, 0, 1, 128),
         OPT_CHOICE("alpha", alpha_mode, 0,
                    ({"no", 0},
                     {"yes", 1},
@@ -1948,7 +1952,7 @@ static void pass_dither(struct gl_video *p)
     GLSLF("vec2 dither_pos = gl_FragCoord.xy / %d;\n", p->dither_size);
 
     if (p->opts.temporal_dither) {
-        int phase = p->frames_rendered % 8u;
+        int phase = (p->frames_rendered / p->opts.temporal_dither_period) % 8u;
         float r = phase * (M_PI / 2); // rotate
         float m = phase < 4 ? 1 : -1; // mirror
 
@@ -2103,7 +2107,7 @@ static void gl_video_interpolate_frame(struct gl_video *p, struct vo_frame *t,
         gl_video_upload_image(p, t->current);
         pass_render_frame(p);
         finish_pass_fbo(p, &p->surfaces[p->surface_now].fbotex,
-                        vp_w, vp_h, 0, 0);
+                        vp_w, vp_h, 0, FBOTEX_FUZZY);
         p->surfaces[p->surface_now].pts = p->image.mpi->pts;
         p->surface_idx = p->surface_now;
     }
@@ -2164,7 +2168,7 @@ static void gl_video_interpolate_frame(struct gl_video *p, struct vo_frame *t,
             gl_video_upload_image(p, f);
             pass_render_frame(p);
             finish_pass_fbo(p, &p->surfaces[surface_dst].fbotex,
-                            vp_w, vp_h, 0, 0);
+                            vp_w, vp_h, 0, FBOTEX_FUZZY);
             p->surfaces[surface_dst].pts = f->pts;
             p->surface_idx = surface_dst;
             surface_dst = fbosurface_wrap(surface_dst+1);
@@ -2854,7 +2858,7 @@ void gl_video_set_options(struct gl_video *p, struct gl_video_opts *opts)
 
 void gl_video_configure_queue(struct gl_video *p, struct vo *vo)
 {
-    int queue_size = 0;
+    int queue_size = 1;
 
     // Figure out an adequate size for the interpolation queue. The larger
     // the radius, the earlier we need to queue frames.
@@ -2864,10 +2868,10 @@ void gl_video_configure_queue(struct gl_video *p, struct vo *vo)
         if (kernel) {
             double radius = kernel->f.radius;
             radius = radius > 0 ? radius : p->opts.scaler[3].radius;
-            queue_size = 1 + ceil(radius);
+            queue_size += 1 + ceil(radius);
         } else {
             // Oversample case
-            queue_size = 2;
+            queue_size += 2;
         }
     }
 

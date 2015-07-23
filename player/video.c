@@ -234,6 +234,7 @@ void uninit_video_chain(struct MPContext *mpctx)
         mpctx->video_status = STATUS_EOF;
         mpctx->sync_audio_to_video = false;
         reselect_demux_streams(mpctx);
+        remove_deint_filter(mpctx);
     }
     mp_notify(mpctx, MPV_EVENT_VIDEO_RECONFIG, NULL);
 }
@@ -426,8 +427,10 @@ static void init_filter_params(struct MPContext *mpctx)
     // recreate the chain a second time, which is not very elegant, but allows
     // us to test whether enabling deinterlacing works with the current video
     // format and other filters.
-    if (opts->deinterlace >= 0)
-        mp_property_do("deinterlace", M_PROPERTY_SET, &opts->deinterlace, mpctx);
+    if (opts->deinterlace >= 0) {
+        remove_deint_filter(mpctx);
+        set_deinterlacing(mpctx, opts->deinterlace != 0);
+    }
 }
 
 // Feed newly decoded frames to the filter, take care of format changes.
@@ -607,10 +610,10 @@ static int get_req_frames(struct MPContext *mpctx, bool eof)
     if (eof || mpctx->video_pts == MP_NOPTS_VALUE)
         return 1;
 
-    int req = 1 + vo_get_num_future_frames(mpctx->video_out);
+    int req = vo_get_num_req_frames(mpctx->video_out);
     if ((opts->frame_dropping & 1) || opts->video_sync_mode == 1)
         req = MPMAX(req, 2);
-    return req;
+    return MPMIN(req, MP_ARRAY_SIZE(mpctx->next_frames));
 }
 
 // Whether it's fine to call add_new_frame() now.

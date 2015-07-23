@@ -833,10 +833,11 @@ Video
     Set framedropping mode used with ``--framedrop`` (see skiploopfilter for
     available skip values).
 
-``--vd-lavc-threads=<0-16>``
+``--vd-lavc-threads=<N>``
     Number of threads to use for decoding. Whether threading is actually
-    supported depends on codec. 0 means autodetect number of cores on the
-    machine and use that, up to the maximum of 16 (default: 0).
+    supported depends on codec (default: 0). 0 means autodetect number of cores
+    on the machine and use that, up to the maximum of 16. You can set more than
+    16 threads manually.
 
 
 
@@ -3073,13 +3074,13 @@ Cache
     seeking, such as MP4.
 
     Note that half the cache size will be used to allow fast seeking back. This
-    is also the reason why a full cache is usually reported as 50% full. The
-    cache fill display does not include the part of the cache reserved for
-    seeking back. Likewise, when starting a file the cache will be at 100%,
-    because no space is reserved for seeking back yet.
+    is also the reason why a full cache is usually not reported as 100% full.
+    The cache fill display does not include the part of the cache reserved for
+    seeking back. The actual maximum percentage will usually be the ratio
+    between readahead and backbuffer sizes.
 
 ``--cache-default=<kBytes|no>``
-    Set the size of the cache in kilobytes (default: 150000 KB). Using ``no``
+    Set the size of the cache in kilobytes (default: 75000 KB). Using ``no``
     will not automatically enable the cache e.g. when playing from a network
     stream. Note that using ``--cache`` will always override this option.
 
@@ -3098,6 +3099,12 @@ Cache
     position and seek destination, or performing an actual seek. Depending
     on the situation, either of these might be slower than the other method.
     This option allows control over this.
+
+``--cache-backbuffer=<kBytes>``
+    Size of the cache back buffer (default: 75000 KB). This will add to the total
+    cache size, and reserved the amount for seeking back. The reserved amount
+    will not be used for readahead, and instead preserves already read data to
+    enable fast seeking back.
 
 ``--cache-file=<TMP|path>``
     Create a cache file on the filesystem.
