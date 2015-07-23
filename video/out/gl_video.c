@@ -1350,6 +1350,11 @@ static void pass_sample_oversample(struct gl_video *p, struct scaler *scaler,
                           texture(tex, baseNE),
                           coeff.y);)
     GLSL(color = mix(right, left, coeff.x);)
+    float darken = scaler->conf.kernel.params[1];
+    if (!isnan(darken) && darken != 1.0) {
+        GLSL(float fracpart = fract(coeff.x) + fract(coeff.y);)
+        GLSLF("if (fracpart > 0.0) color.rgb *= vec3(%f);\n", darken);
+    }
     GLSLF("}\n");
 }
 
