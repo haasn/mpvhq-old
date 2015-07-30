@@ -136,9 +136,6 @@ void update_playback_speed(struct MPContext *mpctx)
         mpctx->playback_speed == old_speed)
         return;
 
-    // Adjust time until next frame flip for nosound mode
-    mpctx->time_frame *= old_speed / mpctx->playback_speed;
-
     if (!mpctx->d_audio || mpctx->d_audio->afilter->initialized < 1)
         return;
 
