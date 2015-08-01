@@ -20,6 +20,10 @@ Interface changes
 ::
 
  --- mpv 0.10.0 will be released ---
+    - add --video-sync* options
+      "display-sync-active" property
+      "vo-missed-frame-count" property
+      "speed-correction" property
     - add "option-info/<name>/set-locally" property
     - add --cache-backbuffer; change --cache-default default to 75MB
       the new total cache size is the sum of backbuffer and the cache size
