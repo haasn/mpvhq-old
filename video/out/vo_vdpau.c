@@ -1161,7 +1161,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
 const struct vo_driver video_out_vdpau = {
     .description = "VDPAU with X11",
     .name = "vdpau",
-    .caps = VO_CAP_FRAMEDROP | VO_CAP_SYNC_DISPLAY,
+    .caps = VO_CAP_FRAMEDROP,
     .preinit = preinit,
     .query_format = query_format,
     .reconfig = reconfig,

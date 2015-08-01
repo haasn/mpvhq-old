@@ -471,7 +471,7 @@ static const struct m_option options[] = {
     {0},
 };
 
-#define CAPS (VO_CAP_ROTATE90 | VO_CAP_SYNC_DISPLAY)
+#define CAPS VO_CAP_ROTATE90
 
 const struct vo_driver video_out_opengl = {
     .description = "Extended OpenGL Renderer",

@@ -45,13 +45,8 @@
 static int update_playback_speed_filters(struct MPContext *mpctx)
 {
     struct MPOpts *opts = mpctx->opts;
-    double speed = mpctx->playback_speed;
+    double speed = opts->playback_speed;
     struct af_stream *afs = mpctx->d_audio->afilter;
-
-    // Use pitch correction only for speed adjustments by the user, not minor
-    // sync correction ones.
-    bool use_pitch_correction = opts->pitch_correction &&
-                                opts->playback_speed != 1.0;
 
     // Make sure only exactly one filter changes speed; resetting them all
     // and setting 1 filter is the easiest way to achieve this.
@@ -68,7 +63,7 @@ static int update_playback_speed_filters(struct MPContext *mpctx)
         return 0;
 
     int method = AF_CONTROL_SET_PLAYBACK_SPEED_RESAMPLE;
-    if (use_pitch_correction)
+    if (opts->pitch_correction)
         method = AF_CONTROL_SET_PLAYBACK_SPEED;
 
     if (!af_control_any_rev(afs, method, &speed)) {
@@ -93,7 +88,6 @@ static int recreate_audio_filters(struct MPContext *mpctx)
 
     if (update_playback_speed_filters(mpctx) < 0) {
         mpctx->opts->playback_speed = 1.0;
-        mpctx->playback_speed = 1.0;
         mp_notify(mpctx, MP_EVENT_CHANGE_ALL, NULL);
     }
 
@@ -123,25 +117,14 @@ int reinit_audio_filters(struct MPContext *mpctx)
     return 1;
 }
 
-// Call this if opts->playback_speed or mpctx->speed_correction changes.
-void update_playback_speed(struct MPContext *mpctx)
+void set_playback_speed(struct MPContext *mpctx, double new_speed)
 {
     struct MPOpts *opts = mpctx->opts;
 
-    double old_speed = mpctx->playback_speed;
-    double old_speed2 = mpctx->speed_correction;
-
-    mpctx->playback_speed = opts->playback_speed * mpctx->speed_correction;
-
-    if (mpctx->playback_speed == old_speed &&
-        mpctx->speed_correction == old_speed2)
-        return;
-
     // Adjust time until next frame flip for nosound mode
-    mpctx->time_frame *= old_speed / mpctx->playback_speed;
+    mpctx->time_frame *= opts->playback_speed / new_speed;
 
-    //MP_WARN(mpctx, "Change speed to %f (delta %f)\n",
-    //        mpctx->playback_speed, mpctx->playback_speed - old_speed);
+    opts->playback_speed = new_speed;
 
     if (!mpctx->d_audio || mpctx->d_audio->afilter->initialized < 1)
         return;
@@ -320,7 +303,7 @@ void reinit_audio_chain(struct MPContext *mpctx)
     if (recreate_audio_filters(mpctx) < 0)
         goto init_error;
 
-    update_playback_speed(mpctx);
+    set_playback_speed(mpctx, opts->playback_speed);
 
     return;
 
@@ -371,7 +354,7 @@ double written_audio_pts(struct MPContext *mpctx)
 
     // Filters divide audio length by playback_speed, so multiply by it
     // to get the length in original units without speedup or slowdown
-    a_pts -= buffered_output * mpctx->playback_speed;
+    a_pts -= buffered_output * mpctx->opts->playback_speed;
 
     return a_pts +
         get_track_video_offset(mpctx, mpctx->current_track[0][STREAM_AUDIO]);
@@ -383,7 +366,7 @@ double playing_audio_pts(struct MPContext *mpctx)
     double pts = written_audio_pts(mpctx);
     if (pts == MP_NOPTS_VALUE || !mpctx->ao)
         return pts;
-    return pts - mpctx->playback_speed * ao_get_delay(mpctx->ao);
+    return pts - mpctx->opts->playback_speed * ao_get_delay(mpctx->ao);
 }
 
 static int write_to_ao(struct MPContext *mpctx, struct mp_audio *data, int flags,
@@ -399,7 +382,7 @@ static int write_to_ao(struct MPContext *mpctx, struct mp_audio *data, int flags
 #endif
     if (data->samples == 0)
         return 0;
-    double real_samplerate = out_format.rate / mpctx->playback_speed;
+    double real_samplerate = out_format.rate / mpctx->opts->playback_speed;
     int played = ao_play(mpctx->ao, data->planes, data->samples, flags);
     assert(played <= data->samples);
     if (played > 0) {
@@ -427,7 +410,7 @@ static bool get_sync_samples(struct MPContext *mpctx, int *skip)
 
     struct mp_audio out_format = {0};
     ao_get_format(mpctx->ao, &out_format);
-    double play_samplerate = out_format.rate / mpctx->playback_speed;
+    double play_samplerate = out_format.rate / opts->playback_speed;
 
     if (!opts->initial_audio_sync) {
         mpctx->audio_status = STATUS_FILLING;
@@ -504,7 +487,7 @@ void fill_audio_out_buffers(struct MPContext *mpctx, double endpts)
 
     struct mp_audio out_format = {0};
     ao_get_format(mpctx->ao, &out_format);
-    double play_samplerate = out_format.rate / mpctx->playback_speed;
+    double play_samplerate = out_format.rate / opts->playback_speed;
 
     // If audio is infinitely fast, somehow try keeping approximate A/V sync.
     if (mpctx->audio_status == STATUS_PLAYING && ao_untimed(mpctx->ao) &&

@@ -90,7 +90,6 @@ struct af_resample {
     int reorder_in[MP_NUM_CHANNELS];
     int reorder_out[MP_NUM_CHANNELS];
     struct mp_audio_pool *reorder_buffer;
-    char remix_msg[80];
 };
 
 #if HAVE_LIBAVRESAMPLE
