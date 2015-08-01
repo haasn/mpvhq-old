@@ -667,7 +667,6 @@ static void pass_load_fbotex(struct gl_video *p, struct fbotex *src_fbo, int id,
 static void pass_set_image_textures(struct gl_video *p, struct video_image *vimg,
                                     struct gl_transform *chroma)
 {
-    GLuint imgtex[4] = {0};
     *chroma = (struct gl_transform){{{0}}};
 
     assert(vimg->mpi);
@@ -695,20 +694,10 @@ static void pass_set_image_textures(struct gl_video *p, struct video_image *vimg
     chroma->m[1][1] = ls_h * (float)vimg->planes[0].tex_h
                                / vimg->planes[1].tex_h;
 
-    if (p->hwdec_active) {
-        if (p->hwdec->driver->map_image(p->hwdec, vimg->mpi, imgtex) < 0) {
-            for (int n = 0; n < p->plane_count; n++)
-                imgtex[n] = -1;
-        }
-    } else {
-        for (int n = 0; n < p->plane_count; n++)
-            imgtex[n] = vimg->planes[n].gl_texture;
-    }
-
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *t = &vimg->planes[n];
         p->pass_tex[n] = (struct src_tex){
-            .gl_tex = imgtex[n],
+            .gl_tex = vimg->planes[n].gl_texture,
             .gl_target = t->gl_target,
             .tex_w = t->tex_w,
             .tex_h = t->tex_h,
@@ -798,7 +787,8 @@ static void uninit_video(struct gl_video *p)
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *plane = &vimg->planes[n];
 
-        gl->DeleteTextures(1, &plane->gl_texture);
+        if (!p->hwdec_active)
+            gl->DeleteTextures(1, &plane->gl_texture);
         plane->gl_texture = 0;
         gl->DeleteBuffers(1, &plane->gl_buffer);
         plane->gl_buffer = 0;
@@ -2369,8 +2359,13 @@ static void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi)
     p->osd_pts = mpi->pts;
     p->frames_uploaded++;
 
-    if (p->hwdec_active)
+    if (p->hwdec_active) {
+        GLuint imgtex[4] = {0};
+        bool ok = p->hwdec->driver->map_image(p->hwdec, vimg->mpi, imgtex) >= 0;
+        for (int n = 0; n < p->plane_count; n++)
+            vimg->planes[n].gl_texture = ok ? imgtex[n] : -1;
         return;
+    }
 
     assert(mpi->num_planes == p->plane_count);
 
@@ -2447,14 +2442,14 @@ static void check_gl_features(struct gl_video *p)
         if (kernel) {
             char *reason = NULL;
             if (!test_fbo(p, &have_fbo))
-                reason = "scaler (FBOs missing)";
+                reason = "(FBOs missing)";
             if (!have_float_tex)
-                reason = "scaler (float tex. missing)";
+                reason = "(float tex. missing)";
             if (!have_1d_tex && kernel->polar)
-                reason = "scaler (1D tex. missing)";
+                reason = "(1D tex. missing)";
             if (reason) {
                 p->opts.scaler[n].kernel.name = "bilinear";
-                MP_WARN(p, "Disabling %s.\n", reason);
+                MP_WARN(p, "Disabling scaler #%d %s.\n", n, reason);
             }
         }
     }

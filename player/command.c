@@ -1784,7 +1784,11 @@ static int property_switch_track(struct m_property *prop, int action, void *arg,
 
     switch (action) {
     case M_PROPERTY_GET:
-        *(int *) arg = track ? track->user_tid : -2;
+        if (mpctx->playback_initialized) {
+            *(int *)arg = track ? track->user_tid : -2;
+        } else {
+            *(int *)arg = mpctx->opts->stream_id[order][type];
+        }
         return M_PROPERTY_OK;
     case M_PROPERTY_PRINT:
         if (!track)
@@ -3261,6 +3265,7 @@ static int mp_property_option_info(void *ctx, struct m_property *prop,
             {"name",                    SUB_PROP_STR(co->name)},
             {"type",                    SUB_PROP_STR(opt->type->name)},
             {"set-from-commandline",    SUB_PROP_FLAG(co->is_set_from_cmdline)},
+            {"set-locally",             SUB_PROP_FLAG(co->is_set_locally)},
             {"default-value",           *opt, def},
             {"min",                     SUB_PROP_DOUBLE(opt->min),
              .unavailable = !(has_minmax && (opt->flags & M_OPT_MIN))},

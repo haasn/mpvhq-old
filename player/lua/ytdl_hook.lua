@@ -123,6 +123,7 @@ mp.add_hook("on_load", 10, function ()
         end
         table.insert(command, "--")
         table.insert(command, url)
+        msg.debug("Running: " .. table.concat(command,' '))
         local es, json, result = exec(command)
 
         if (es < 0) or (json == nil) or (json == "") then
@@ -256,6 +257,12 @@ mp.add_hook("on_load", 10, function ()
                     mp.commandv("sub_add", sub,
                         "auto", lang.." "..sub_info.ext, slang)
                 end
+            end
+
+            -- set start and end time
+            if not (json.start_time == nil) then
+                msg.debug("setting start to: " .. json.start_time .. " secs")
+                mp.set_property("file-local-options/start",json.start_time)
             end
 
             -- for rtmp
