@@ -36,7 +36,7 @@ Packages for this particular fork are available for the following distributions:
 
 - [ArchLinux (AUR)](https://aur.archlinux.org/packages/mpvhq-git/)
 
-- [CRUX (6c37/mpvhq)](https://github.com/6c37/crux-ports/tree/master/mpvhq)
+- [CRUX (6c37/mpvhq)](https://github.com/6c37/crux-ports-git/tree/master/mpvhq)
 
 - [Gentoo (haasn/gentoo-overlay)](https://github.com/haasn/gentoo-overlay/blob/master/media-video/mpv/mpv-9999.ebuild)
 
