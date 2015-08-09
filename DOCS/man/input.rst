@@ -807,13 +807,6 @@ Property list
 ``speed`` (RW)
     See ``--speed``.
 
-``speed-correction``
-    Factor multiplied with ``speed`` at which the player attempts to play the
-    file. Usually it's exactly 1. (Display sync mode will make this useful.)
-
-``display-sync-active``
-    Return whether ``--video-sync=display`` is actually active.
-
 ``filename``
     Currently played file, with path stripped. If this is an URL, try to undo
     percent encoding as well. (The result is not necessarily correct, but
