@@ -162,12 +162,18 @@ const struct mp_cmd_def mp_cmds[] = {
 
   { MP_CMD_ENABLE_INPUT_SECTION,  "enable-section",  {
       ARG_STRING,
-      OARG_CHOICE(0, ({"default", 0},
-                      {"exclusive", 1})),
+      OARG_FLAGS(0, ({"default", 0},
+                     {"exclusive", MP_INPUT_EXCLUSIVE},
+                     {"allow-hide-cursor", MP_INPUT_ALLOW_HIDE_CURSOR},
+                     {"allow-vo-dragging", MP_INPUT_ALLOW_VO_DRAGGING})),
   }},
   { MP_CMD_DISABLE_INPUT_SECTION, "disable-section", { ARG_STRING } },
-
-  { MP_CMD_DISCNAV, "discnav", { ARG_STRING } },
+  { MP_CMD_DEFINE_INPUT_SECTION, "define-section", {
+      ARG_STRING,
+      ARG_STRING,
+      OARG_CHOICE(1, ({"default", 1},
+                      {"force", 0})),
+  }},
 
   { MP_CMD_AB_LOOP, "ab-loop", },
 
@@ -275,7 +281,6 @@ static const struct legacy_cmd legacy_cmds[] = {
     {"show_tracks",             "show-text ${track-list}"},
     {"show_playlist",           "show-text ${playlist}"},
     {"speed_mult",              "multiply speed"},
-    {"dvdnav",                  "discnav"},
 
     // Approximate (can fail if user added additional whitespace)
     {"pt_step 1",               "playlist-next"},

@@ -1025,8 +1025,6 @@ void run_playloop(struct MPContext *mpctx)
 
     handle_segment_switch(mpctx, end_is_new_segment);
 
-    mp_handle_nav(mpctx);
-
     handle_loop_file(mpctx);
 
     handle_ab_loop(mpctx);
@@ -1041,7 +1039,7 @@ void run_playloop(struct MPContext *mpctx)
     handle_osd_redraw(mpctx);
 
     mp_wait_events(mpctx, mpctx->sleeptime);
-    mpctx->sleeptime = 100.0; // infinite for all practical purposes
+    mpctx->sleeptime = 1e9; // infinite for all practical purposes
 
     handle_pause_on_low_cache(mpctx);
 

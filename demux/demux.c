@@ -112,8 +112,8 @@ struct demux_internal {
     bool idle;
     bool autoselect;
     double min_secs;
-    int min_packs;
-    int min_bytes;
+    int max_packs;
+    int max_bytes;
 
     bool tracks_switched;       // thread needs to inform demuxer of this
 
@@ -127,7 +127,6 @@ struct demux_internal {
     // Cached state.
     bool force_cache_update;
     double time_length;
-    struct mp_nav_event *nav_event;
     struct mp_tags *stream_metadata;
     int64_t stream_size;
     int64_t stream_cache_size;
@@ -243,7 +242,6 @@ void free_demuxer(demuxer_t *demuxer)
         ds_flush(demuxer->streams[n]->ds);
     pthread_mutex_destroy(&in->lock);
     pthread_cond_destroy(&in->wakeup);
-    talloc_free(in->nav_event);
     talloc_free(demuxer);
 }
 
@@ -395,7 +393,7 @@ static bool read_packet(struct demux_internal *in)
     }
     MP_DBG(in, "packets=%zd, bytes=%zd, active=%d, more=%d\n",
            packs, bytes, active, read_more);
-    if (packs >= MAX_PACKS || bytes >= MAX_PACK_BYTES) {
+    if (packs >= in->max_packs || bytes >= in->max_bytes) {
         if (!in->warned_queue_overflow) {
             in->warned_queue_overflow = true;
             MP_ERR(in, "Too many packets in the demuxer packet queues:\n");
@@ -414,8 +412,6 @@ static bool read_packet(struct demux_internal *in)
         pthread_cond_signal(&in->wakeup);
         return false;
     }
-    if (packs < in->min_packs && bytes < in->min_bytes)
-        read_more |= active;
 
     if (!read_more)
         return false;
@@ -963,8 +959,8 @@ static struct demuxer *open_given_type(struct mpv_global *global,
         .d_buffer = talloc(demuxer, struct demuxer),
         .d_user = demuxer,
         .min_secs = demuxer->opts->demuxer_min_secs,
-        .min_packs = demuxer->opts->demuxer_min_packs,
-        .min_bytes = demuxer->opts->demuxer_min_bytes,
+        .max_packs = demuxer->opts->demuxer_max_packs,
+        .max_bytes = demuxer->opts->demuxer_max_bytes,
     };
     pthread_mutex_init(&in->lock, NULL);
     pthread_cond_init(&in->wakeup, NULL);
@@ -1079,14 +1075,22 @@ struct demuxer *demux_open_url(const char *url,
                                 struct mpv_global *global)
 {
     struct MPOpts *opts = global->opts;
-    struct stream *s = stream_create(url, STREAM_READ, cancel, global);
+    struct demuxer_params dummy = {0};
+    if (!params)
+        params = &dummy;
+    struct stream *s = stream_create(url, STREAM_READ | params->stream_flags,
+                                     cancel, global);
     if (!s)
         return NULL;
-    if (!(params && params->disable_cache))
+    if (params->allow_capture)
+        stream_set_capture_file(s, opts->stream_capture);
+    if (!params->disable_cache)
         stream_enable_cache(&s, &opts->stream_cache);
     struct demuxer *d = demux_open(s, params, global);
-    if (!d)
+    if (!d) {
+        params->demuxer_failed = true;
         free_stream(s);
+    }
     return d;
 }
 
@@ -1297,17 +1301,10 @@ static void update_cache(struct demux_internal *in)
     int64_t stream_cache_size = -1;
     int64_t stream_cache_fill = -1;
     int stream_cache_idle = -1;
-    struct mp_nav_event *nav_event = NULL;
-
-    pthread_mutex_lock(&in->lock);
-    bool need_nav_event = !in->nav_event;;
-    pthread_mutex_unlock(&in->lock);
 
     if (demuxer->desc->control) {
         demuxer->desc->control(demuxer, DEMUXER_CTRL_GET_TIME_LENGTH,
                                &time_length);
-        if (need_nav_event)
-            demuxer->desc->control(demuxer, DEMUXER_CTRL_GET_NAV_EVENT, &nav_event);
     }
 
     stream_control(stream, STREAM_CTRL_GET_METADATA, &stream_metadata);
@@ -1327,7 +1324,6 @@ static void update_cache(struct demux_internal *in)
         in->stream_metadata = talloc_steal(in, stream_metadata);
         in->d_buffer->events |= DEMUX_EVENT_METADATA;
     }
-    in->nav_event = nav_event ? nav_event : in->nav_event;
     pthread_mutex_unlock(&in->lock);
 }
 
@@ -1426,13 +1422,6 @@ static int cached_demux_control(struct demux_internal *in, int cmd, void *arg)
             r->ts_duration = 0;
         return DEMUXER_CTRL_OK;
     }
-    case DEMUXER_CTRL_GET_NAV_EVENT:
-        if (!in->nav_event)
-            return DEMUXER_CTRL_NOTIMPL;
-        *(struct mp_nav_event **)arg = in->nav_event;
-        in->nav_event = NULL;
-        return DEMUXER_CTRL_OK;
-
     }
     return DEMUXER_CTRL_DONTKNOW;
 }

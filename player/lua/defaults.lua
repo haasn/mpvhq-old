@@ -24,6 +24,24 @@ function mp.get_opt(key, def)
     return val
 end
 
+function mp.input_define_section(section, contents, flags)
+    if flags == nil or flags == "" then
+        flags = "default"
+    end
+    mp.commandv("define-section", section, contents, flags)
+end
+
+function mp.input_enable_section(section, flags)
+    if flags == nil then
+        flags = ""
+    end
+    mp.commandv("enable-section", section, flags)
+end
+
+function mp.input_disable_section(section)
+    mp.commandv("disable-section", section)
+end
+
 -- For dispatching script_binding. This is sent as:
 --      script_message_to $script_name $binding_name $keystate
 -- The array is indexed by $binding_name, and has functions like this as value:
@@ -133,7 +151,7 @@ local function update_key_bindings()
         end
         mp.input_define_section(section, cfg, flags)
         -- TODO: remove the section if the script is stopped
-        mp.input_enable_section(section, "allow-hide-cursor|allow-vo-dragging")
+        mp.input_enable_section(section, "allow-hide-cursor+allow-vo-dragging")
     end
 end
 

@@ -1935,7 +1935,7 @@ end
 
 function do_enable_keybindings()
     if state.enabled then
-        mp.enable_key_bindings("showhide", "allow-vo-dragging|allow-hide-cursor")
+        mp.enable_key_bindings("showhide", "allow-vo-dragging+allow-hide-cursor")
     end
 end
 
@@ -1952,7 +1952,6 @@ end
 
 validate_user_opts()
 
-mp.register_event("tick", tick)
 mp.register_event("start-file", request_init)
 mp.register_event("tracks-changed", request_init)
 
@@ -1974,13 +1973,11 @@ mp.observe_property("idle", "bool",
 )
 mp.observe_property("pause", "bool", pause_state)
 mp.observe_property("cache-idle", "bool", cache_state)
-
-mp.observe_property("disc-menu-active", "bool", function(name, val)
-    if val == true then
-        hide_osc()
-        mp.disable_key_bindings("showhide")
+mp.observe_property("vo-configured", "bool", function(name, val)
+    if val then
+        mp.register_event("tick", tick)
     else
-        do_enable_keybindings()
+        mp.unregister_event(tick)
     end
 end)
 

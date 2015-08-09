@@ -30,11 +30,6 @@
 #include "packet.h"
 #include "stheader.h"
 
-// Maximum total size of packets queued - if larger, no new packets are read,
-// and the demuxer pretends EOF was reached.
-#define MAX_PACKS 16000
-#define MAX_PACK_BYTES (400 * 1024 * 1024)
-
 // DEMUXER control commands/answers
 #define DEMUXER_CTRL_NOTIMPL -1
 #define DEMUXER_CTRL_DONTKNOW 0
@@ -47,7 +42,6 @@ enum demux_ctrl {
     DEMUXER_CTRL_IDENTIFY_PROGRAM,
     DEMUXER_CTRL_STREAM_CTRL,
     DEMUXER_CTRL_GET_READER_STATE,
-    DEMUXER_CTRL_GET_NAV_EVENT,
     DEMUXER_CTRL_GET_BITRATE_STATS, // double[STREAM_TYPE_COUNT]
 };
 
@@ -170,7 +164,12 @@ struct demuxer_params {
     int matroska_wanted_segment;
     bool *matroska_was_valid;
     bool expect_subtitle;
-    bool disable_cache; // demux_open_url() only
+    // -- demux_open_url() only
+    int stream_flags;
+    bool allow_capture;
+    bool disable_cache;
+    // result
+    bool demuxer_failed;
 };
 
 typedef struct demuxer {

@@ -277,10 +277,6 @@ iconv support use --disable-iconv.",
         'func': check_statement('sys/vfs.h',
                                 'struct statfs fs; fstatfs(0, &fs); fs.f_namelen')
     }, {
-        'name': '--libguess',
-        'desc': 'libguess support',
-        'func': check_pkg_config('libguess', '>= 1.0'),
-    }, {
         'name': '--libsmbclient',
         'desc': 'Samba support',
         'deps': [ 'libdl' ],
@@ -339,7 +335,18 @@ iconv support use --disable-iconv.",
     }, {
         'name': '--enca',
         'desc': 'ENCA support',
+        'deps': [ 'iconv' ],
         'func': check_statement('enca.h', 'enca_get_languages(NULL)', lib='enca'),
+    }, {
+        'name': '--libguess',
+        'desc': 'libguess support',
+        'deps': [ 'iconv' ],
+        'func': check_pkg_config('libguess', '>= 1.0'),
+    }, {
+        'name': '--uchardet',
+        'desc': 'uchardet support',
+        'deps': [ 'iconv' ],
+        'func': check_pkg_config('uchardet'),
     }, {
         'name': '--ladspa',
         'desc': 'LADSPA plugin support',
@@ -721,6 +728,25 @@ hwaccel_features = [
         'deps': [ 'gl-cocoa', 'vda-hwaccel' ],
         'func': check_true
     }, {
+        'name': '--videotoolbox-hwaccel',
+        'desc': 'libavcodec videotoolbox hwaccel',
+        'func': compose_checks(
+            check_headers('VideoToolbox/VideoToolbox.h'),
+            check_statement('libavcodec/videotoolbox.h',
+                            'av_videotoolbox_alloc_context()',
+                            framework='IOSurface',
+                            use='libav')),
+    } , {
+        'name': '--videotoolbox-gl',
+        'desc': 'Videotoolbox with OpenGL',
+        'deps': [ 'gl-cocoa', 'videotoolbox-hwaccel' ],
+        'func': check_true
+    } , {
+        'name': 'videotoolbox-vda-gl',
+        'desc': 'Videotoolbox or VDA with OpenGL',
+        'deps_any': [ 'videotoolbox-gl', 'vda-gl' ],
+        'func': check_true
+    }, {
         'name': '--vdpau-hwaccel',
         'desc': 'libavcodec VDPAU hwaccel',
         'deps': [ 'vdpau' ],
@@ -771,6 +797,7 @@ radio_and_tv_features = [
     }, {
         'name': '--pvr',
         'desc': 'Video4Linux2 MPEG PVR interface',
+        'deps': [ 'tv' ],
         'func': check_cc(fragment=load_fragment('pvr.c')),
     }, {
         'name': '--audio-input',

@@ -559,6 +559,7 @@ Video
     :vaapi:     requires ``--vo=opengl`` or ``--vo=vaapi`` (Linux with Intel GPUs only)
     :vaapi-copy: copies video back into system RAM (Linux with Intel GPUs only)
     :vda:       requires ``--vo=opengl`` (OS X only)
+    :videotoolbox: requires ``--vo=opengl`` (newer OS X only)
     :dxva2-copy: copies video back to system RAM (Windows only)
     :rpi:      requires ``--vo=rpi`` (Raspberry Pi only - default if available)
 
@@ -1447,10 +1448,11 @@ Subtitles
 
 ``--sub-codepage=<codepage>``
     If your system supports ``iconv(3)``, you can use this option to specify
-    the subtitle codepage. By default, ENCA will be used to guess the charset.
-    If mpv is not compiled with ENCA, ``UTF-8:UTF-8-BROKEN`` is the default,
-    which means it will try to use UTF-8, otherwise the ``UTF-8-BROKEN``
-    pseudo codepage (see below).
+    the subtitle codepage. By default, uchardet will be used to guess the
+    charset. If mpv is not compiled with uchardet, enca will be used.
+    If mpv is compiled with neither uchardet nor enca, ``UTF-8:UTF-8-BROKEN``
+    is the default, which means it will try to use UTF-8, otherwise the
+    ``UTF-8-BROKEN`` pseudo codepage (see below).
 
     The default value for this option is ``auto``, whose actual effect depends
     on whether ENCA is compiled.
@@ -1499,6 +1501,12 @@ Subtitles
     libguess always needs a language. There is no universal detection
     mode. Use ``--sub-codepage=guess:help`` to get a list of
     languages subject to the same caveat as with ENCA above.
+
+    If the player was compiled with uchardet support you can use it with:
+
+    ``--sub-codepage=uchardet``
+
+    This mode doesn't take language or fallback codepage.
 
 ``--sub-fix-timing``, ``--no-sub-fix-timing``
     By default, external text subtitles are preprocessed to remove minor gaps
@@ -2231,6 +2239,20 @@ Demuxer
 ``--demuxer-rawvideo-size=<value>``
     Frame size in bytes when using ``--demuxer=rawvideo``.
 
+``--demuxer-max-packets=<packets>``, ``--demuxer-max-bytes=<bytes>``
+    This controls how much the demuxer is allowed to buffer ahead. The demuxer
+    will normally try to read ahead as much as necessary, or as much is
+    requested with ``--demuxer-readahead-secs``. The ``--demuxer-max-...``
+    options can be used to restrict the maximum readahead. This limits excessive
+    readahead in case of broken files or desynced playback. The demuxer will
+    stop reading additional packets as soon as one of the limits is reached.
+    (The limits still can be slightly overstepped due to technical reasons.)
+
+    Set these limits highher if you get a packet queue overflow warning, and
+    you think normal playback would be possible with a larger packet queue.
+
+    See ``--list-options`` for defaults and value range.
+
 ``--demuxer-thread=<yes|no>``
     Run the demuxer in a separate thread, and let it prefetch a certain amount
     of packets (default: yes). Having this enabled may lead to smoother
@@ -2248,21 +2270,6 @@ Demuxer
 
     (This value tends to be fuzzy, because many file formats don't store linear
     timestamps.)
-
-``--demuxer-readahead-packets=<packets>``
-    If ``--demuxer-thread`` is enabled, this controls how much the demuxer
-    should buffer ahead. As long as the number of packets in the packet queue
-    doesn't exceed ``--demuxer-readahead-packets``, and the total number of
-    bytes doesn't exceed ``--demuxer-readahead-bytes``, the thread keeps
-    reading ahead.
-
-    Note that if you set these options near the maximum, you might get a
-    packet queue overflow warning.
-
-    See ``--list-options`` for defaults and value range.
-
-``--demuxer-readahead-bytes=<bytes>``
-    See ``--demuxer-readahead-packets``.
 
 ``--force-seekable=<yes|no>``
     If the player thinks that the media is not seekable (e.g. playing from a

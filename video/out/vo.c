@@ -137,6 +137,8 @@ struct vo_internal {
     int queued_events;              // event mask for the user
     int internal_events;            // event mask for us
 
+    int64_t vsync_interval;
+
     int64_t flip_queue_offset; // queue flip events at most this much in advance
 
     int64_t drop_count;
@@ -153,7 +155,6 @@ struct vo_internal {
     double display_fps;
 
     // --- The following fields can be accessed from the VO thread only
-    int64_t vsync_interval;
     int64_t vsync_interval_approx;
     int64_t last_flip;
     char *window_title;
@@ -679,7 +680,9 @@ static bool render_frame(struct vo *vo)
     // frame currently drawn, while in->current_frame is the potentially next.)
     in->current_frame->repeat = true;
 
-    if (!in->dropped_frame) {
+    if (in->dropped_frame) {
+        in->drop_count += 1;
+    } else {
         in->rendering = true;
         in->hasframe_rendered = true;
         int64_t prev_drop_count = vo->in->drop_count;
@@ -716,9 +719,7 @@ static bool render_frame(struct vo *vo)
         in->rendering = false;
     }
 
-    if (in->dropped_frame) {
-        in->drop_count += 1;
-    } else {
+    if (!in->dropped_frame) {
         vo->want_redraw = false;
         in->want_redraw = false;
         in->request_redraw = false;
@@ -764,7 +765,7 @@ static void do_redraw(struct vo *vo)
 
     if (vo->driver->draw_frame) {
         vo->driver->draw_frame(vo, frame);
-    } else if ((!full_redraw || vo->driver->control(vo, VOCTRL_REDRAW_FRAME, NULL) < 1)
+    } else if ((full_redraw || vo->driver->control(vo, VOCTRL_REDRAW_FRAME, NULL) < 1)
                && frame->current)
     {
         vo->driver->draw_image(vo, mp_image_new_ref(frame->current));
@@ -983,7 +984,6 @@ int vo_get_num_req_frames(struct vo *vo)
     return res;
 }
 
-// to be called from the VO thread only
 int64_t vo_get_vsync_interval(struct vo *vo)
 {
     struct vo_internal *in = vo->in;

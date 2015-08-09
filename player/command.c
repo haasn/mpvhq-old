@@ -686,24 +686,6 @@ static int mp_property_disc_title(void *ctx, struct m_property *prop,
     return M_PROPERTY_NOT_IMPLEMENTED;
 }
 
-static int mp_property_disc_menu(void *ctx, struct m_property *prop,
-                                 int action, void *arg)
-{
-    MPContext *mpctx = ctx;
-    int state = mp_nav_in_menu(mpctx);
-    if (state < 0)
-        return M_PROPERTY_UNAVAILABLE;
-    return m_property_flag_ro(action, arg, !!state);
-}
-
-static int mp_property_mouse_on_button(void *ctx, struct m_property *prop,
-                                       int action, void *arg)
-{
-    MPContext *mpctx = ctx;
-    bool on = mp_nav_mouse_on_button(mpctx);
-    return m_property_flag_ro(action, arg, on);
-}
-
 /// Current chapter (RW)
 static int mp_property_chapter(void *ctx, struct m_property *prop,
                                int action, void *arg)
@@ -2146,7 +2128,7 @@ static int probe_deint_filters(struct MPContext *mpctx)
     if (check_output_format(mpctx, IMGFMT_VAAPI) &&
         probe_deint_filter(mpctx, "vavpp"))
         return 0;
-    if (probe_deint_filter(mpctx, "yadif:interlaced-only=yes"))
+    if (probe_deint_filter(mpctx, "yadif:mode=field:interlaced-only=yes"))
         return 0;
     return -1;
 }
@@ -2658,27 +2640,27 @@ static int mp_property_aspect(void *ctx, struct m_property *prop,
                               int action, void *arg)
 {
     MPContext *mpctx = ctx;
-    if (!mpctx->d_video)
-        return M_PROPERTY_UNAVAILABLE;
-    struct dec_video *d_video = mpctx->d_video;
-    struct sh_video *sh_video = d_video->header->video;
     switch (action) {
     case M_PROPERTY_SET: {
         mpctx->opts->movie_aspect = *(float *)arg;
-        reinit_video_filters(mpctx);
-        mp_force_video_refresh(mpctx);
+        if (mpctx->d_video) {
+            reinit_video_filters(mpctx);
+            mp_force_video_refresh(mpctx);
+        }
         return M_PROPERTY_OK;
     }
     case M_PROPERTY_GET: {
-        float aspect = -1;
-        struct mp_image_params *params = &d_video->vfilter->override_params;
-        if (params && params->d_w && params->d_h) {
-            aspect = (float)params->d_w / params->d_h;
-        } else if (sh_video->disp_w && sh_video->disp_h) {
-            aspect = (float)sh_video->disp_w / sh_video->disp_h;
+        float aspect = mpctx->opts->movie_aspect;
+        if (mpctx->d_video && aspect <= 0) {
+            struct dec_video *d_video = mpctx->d_video;
+            struct sh_video *sh_video = d_video->header->video;
+            struct mp_image_params *params = &d_video->vfilter->override_params;
+            if (params && params->d_w && params->d_h) {
+                aspect = (float)params->d_w / params->d_h;
+            } else if (sh_video->disp_w && sh_video->disp_h) {
+                aspect = (float)sh_video->disp_w / sh_video->disp_h;
+            }
         }
-        if (aspect <= 0)
-            return M_PROPERTY_UNAVAILABLE;
         *(float *)arg = aspect;
         return M_PROPERTY_OK;
     }
@@ -3351,8 +3333,6 @@ static const struct m_property mp_properties[] = {
     {"playtime-remaining", mp_property_playtime_remaining},
     {"playback-time", mp_property_playback_time},
     {"disc-title", mp_property_disc_title},
-    {"disc-menu-active", mp_property_disc_menu},
-    {"disc-mouse-on-button", mp_property_mouse_on_button},
     {"chapter", mp_property_chapter},
     {"edition", mp_property_edition},
     {"disc-titles", mp_property_disc_titles},
@@ -3565,7 +3545,7 @@ static const char *const *const mp_event_property_change[] = {
       "video-format", "video-codec", "video-bitrate", "dwidth", "dheight",
       "width", "height", "fps", "aspect", "vo-configured", "current-vo",
       "detected-hwdec", "colormatrix", "colormatrix-input-range",
-      "colormatrix-output-range", "colormatrix-primaries"),
+      "colormatrix-output-range", "colormatrix-primaries", "video-aspect"),
     E(MPV_EVENT_AUDIO_RECONFIG, "audio-format", "audio-codec", "audio-bitrate",
       "samplerate", "channels", "audio", "volume", "mute", "balance",
       "volume-restore-data", "current-ao", "audio-codec-name", "audio-params",
@@ -4704,16 +4684,16 @@ int run_command(struct MPContext *mpctx, struct mp_cmd *cmd, struct mpv_node *re
     }
 
     case MP_CMD_ENABLE_INPUT_SECTION:
-        mp_input_enable_section(mpctx->input, cmd->args[0].v.s,
-                                cmd->args[1].v.i == 1 ? MP_INPUT_EXCLUSIVE : 0);
+        mp_input_enable_section(mpctx->input, cmd->args[0].v.s, cmd->args[1].v.i);
         break;
 
     case MP_CMD_DISABLE_INPUT_SECTION:
         mp_input_disable_section(mpctx->input, cmd->args[0].v.s);
         break;
 
-    case MP_CMD_DISCNAV:
-        mp_nav_user_input(mpctx, cmd->args[0].v.s);
+    case MP_CMD_DEFINE_INPUT_SECTION:
+        mp_input_define_section(mpctx->input, cmd->args[0].v.s, "<api>",
+                                cmd->args[1].v.s, !!cmd->args[2].v.i);
         break;
 
     case MP_CMD_AB_LOOP: {
