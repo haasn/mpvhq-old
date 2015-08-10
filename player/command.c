@@ -279,9 +279,8 @@ static int mp_property_playback_speed(void *ctx, struct m_property *prop,
     double speed = mpctx->opts->playback_speed;
     switch (action) {
     case M_PROPERTY_SET: {
-        double new_speed = *(double *)arg;
-        if (speed != new_speed)
-            set_playback_speed(mpctx, new_speed);
+        mpctx->opts->playback_speed = *(double *)arg;
+        update_playback_speed(mpctx);
         return M_PROPERTY_OK;
     }
     case M_PROPERTY_PRINT:
@@ -289,6 +288,33 @@ static int mp_property_playback_speed(void *ctx, struct m_property *prop,
         return M_PROPERTY_OK;
     }
     return mp_property_generic_option(mpctx, prop, action, arg);
+}
+
+static int mp_property_av_speed_correction(void *ctx, struct m_property *prop,
+                                           int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    char *type = prop->priv;
+    double val = 0;
+    switch (type[0]) {
+    case 'a': val = mpctx->speed_factor_a; break;
+    case 'v': val = mpctx->speed_factor_v; break;
+    default: abort();
+    }
+
+    if (action == M_PROPERTY_PRINT) {
+        *(char **)arg = talloc_asprintf(NULL, "%+.05f%%", (val - 1) * 100);
+        return M_PROPERTY_OK;
+    }
+
+    return m_property_double_ro(action, arg, val);
+}
+
+static int mp_property_display_sync_active(void *ctx, struct m_property *prop,
+                                           int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    return m_property_flag_ro(action, arg, mpctx->display_sync_active);
 }
 
 /// filename with path (RO)
@@ -546,6 +572,16 @@ static int mp_property_vo_drop_frame_count(void *ctx, struct m_property *prop,
     return m_property_int_ro(action, arg, vo_get_drop_count(mpctx->video_out));
 }
 
+static int mp_property_vo_missed_frame_count(void *ctx, struct m_property *prop,
+                                             int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    if (!mpctx->d_video)
+        return M_PROPERTY_UNAVAILABLE;
+
+    return m_property_int_ro(action, arg, vo_get_missed_count(mpctx->video_out));
+}
+
 /// Current position in percent (RW)
 static int mp_property_percent_pos(void *ctx, struct m_property *prop,
                                    int action, void *arg)
@@ -639,7 +675,7 @@ static int mp_property_playtime_remaining(void *ctx, struct m_property *prop,
     if (!time_remaining(mpctx, &remaining))
         return M_PROPERTY_UNAVAILABLE;
 
-    double speed = mpctx->opts->playback_speed;
+    double speed = mpctx->video_speed;
     return property_time(action, arg, remaining / speed);
 }
 
@@ -2625,14 +2661,10 @@ static int mp_property_vf_fps(void *ctx, struct m_property *prop,
     MPContext *mpctx = ctx;
     if (!mpctx->d_video)
         return M_PROPERTY_UNAVAILABLE;
-    double durations[10];
-    int num = get_past_frame_durations(mpctx, durations, MP_ARRAY_SIZE(durations));
-    if (num < MP_ARRAY_SIZE(durations))
+    double res = stabilize_frame_duration(mpctx, false);
+    if (res <= 0)
         return M_PROPERTY_UNAVAILABLE;
-    double duration = 0;
-    for (int n = 0; n < num; n++)
-        duration += durations[n];
-    return m_property_double_ro(action, arg, num / duration);
+    return m_property_double_ro(action, arg, 1 / res);
 }
 
 /// Video aspect (RO)
@@ -3309,6 +3341,9 @@ static const struct m_property mp_properties[] = {
     {"loop", mp_property_generic_option},
     {"loop-file", mp_property_generic_option},
     {"speed", mp_property_playback_speed},
+    {"audio-speed-correction", mp_property_av_speed_correction, .priv = "a"},
+    {"video-speed-correction", mp_property_av_speed_correction, .priv = "v"},
+    {"display-sync-active", mp_property_display_sync_active},
     {"filename", mp_property_filename},
     {"stream-open-filename", mp_property_stream_open_filename},
     {"file-size", mp_property_file_size},
@@ -3326,6 +3361,7 @@ static const struct m_property mp_properties[] = {
     {"total-avsync-change", mp_property_total_avsync_change},
     {"drop-frame-count", mp_property_drop_frame_cnt},
     {"vo-drop-frame-count", mp_property_vo_drop_frame_count},
+    {"vo-missed-frame-count", mp_property_vo_missed_frame_count},
     {"percent-pos", mp_property_percent_pos},
     {"time-start", mp_property_time_start},
     {"time-pos", mp_property_time_pos},
@@ -3540,7 +3576,8 @@ static const char *const *const mp_event_property_change[] = {
     E(MPV_EVENT_TICK, "time-pos", "stream-pos", "stream-time-pos", "avsync",
       "percent-pos", "time-remaining", "playtime-remaining", "playback-time",
       "estimated-vf-fps", "drop-frame-count", "vo-drop-frame-count",
-      "total-avsync-change"),
+      "total-avsync-change", "audio-speed-correction", "video-speed-correction",
+      "vo-missed-frame-count"),
     E(MPV_EVENT_VIDEO_RECONFIG, "video-out-params", "video-params",
       "video-format", "video-codec", "video-bitrate", "dwidth", "dheight",
       "width", "height", "fps", "aspect", "vo-configured", "current-vo",
@@ -3736,8 +3773,8 @@ static const struct property_osd_display {
     { "tv-hue", "Hue", .osd_progbar = OSD_HUE},
     { "tv-saturation", "Saturation", .osd_progbar = OSD_SATURATION },
     { "tv-contrast", "Contrast", .osd_progbar = OSD_CONTRAST },
-    { "ab-loop-a", "A-B loop point A"},
-    { "ab-loop-b", "A-B loop point B"},
+    { "ab-loop-a", "A-B loop start"},
+    { "ab-loop-b", .msg = "A-B loop: ${ab-loop-a} - ${ab-loop-b}"},
     { "audio-device", "Audio device"},
     // By default, don't display the following properties on OSD
     { "pause", NULL },
