@@ -26,11 +26,10 @@
 #include "video/decode/lavc.h"
 #include "config.h"
 
-
 static int probe(struct vd_lavc_hwdec *hwdec, struct mp_hwdec_info *info,
                  const char *decoder)
 {
-    hwdec_request_api(info, "vda");
+    hwdec_request_api(info, "videotoolbox");
     if (!info || !info->hwctx)
         return HWDEC_ERR_NO_CTX;
     if (mp_codec_to_av_codec_id(decoder) != AV_CODEC_ID_H264)
@@ -74,7 +73,7 @@ static void print_vda_error(struct mp_log *log, int lev, char *message,
     mp_msg(log, lev, "%s: %d\n", message, error_code);
 }
 
-static int init_decoder(struct lavc_ctx *ctx, int fmt, int w, int h)
+static int init_decoder(struct lavc_ctx *ctx, int w, int h)
 {
     av_vda_default_free(ctx->avctx);
 #if HAVE_VDA_DEFAULT_INIT2
@@ -98,6 +97,16 @@ static void uninit(struct lavc_ctx *ctx)
         av_vda_default_free(ctx->avctx);
 }
 
+static struct mp_image *process_image(struct lavc_ctx *ctx, struct mp_image *img)
+{
+    // Same representation. IMGFMT_VDA is only needed to select the libavcodec
+    // hwaccel driver.
+    if (img->imgfmt == IMGFMT_VDA)
+        mp_image_setfmt(img, IMGFMT_VIDEOTOOLBOX);
+
+    return img;
+}
+
 const struct vd_lavc_hwdec mp_vd_lavc_vda = {
     .type = HWDEC_VDA,
     .image_format = IMGFMT_VDA,
@@ -105,4 +114,5 @@ const struct vd_lavc_hwdec mp_vd_lavc_vda = {
     .init = init,
     .uninit = uninit,
     .init_decoder = init_decoder,
+    .process_image = process_image,
 };

@@ -53,6 +53,7 @@ extern const demuxer_desc_t demuxer_desc_subreader;
 extern const demuxer_desc_t demuxer_desc_playlist;
 extern const demuxer_desc_t demuxer_desc_disc;
 extern const demuxer_desc_t demuxer_desc_rar;
+extern const demuxer_desc_t demuxer_desc_libarchive;
 
 /* Please do not add any new demuxers here. If you want to implement a new
  * demuxer, add it to libavformat, except for wrappers around external
@@ -71,6 +72,9 @@ const demuxer_desc_t *const demuxer_list[] = {
     &demuxer_desc_libass,
 #endif
     &demuxer_desc_matroska,
+#if HAVE_LIBARCHIVE
+    &demuxer_desc_libarchive,
+#endif
     &demuxer_desc_rar,
     &demuxer_desc_lavf,
     &demuxer_desc_mf,
@@ -1296,7 +1300,6 @@ static void update_cache(struct demux_internal *in)
     // Don't lock while querying the stream.
     double time_length = -1;
     struct mp_tags *stream_metadata = NULL;
-    int64_t stream_size = -1;
     int64_t stream_cache_size = -1;
     int64_t stream_cache_fill = -1;
     int stream_cache_idle = -1;
@@ -1306,8 +1309,8 @@ static void update_cache(struct demux_internal *in)
                                &time_length);
     }
 
+    int64_t stream_size = stream_get_size(stream);
     stream_control(stream, STREAM_CTRL_GET_METADATA, &stream_metadata);
-    stream_control(stream, STREAM_CTRL_GET_SIZE, &stream_size);
     stream_control(stream, STREAM_CTRL_GET_CACHE_SIZE, &stream_cache_size);
     stream_control(stream, STREAM_CTRL_GET_CACHE_FILL, &stream_cache_fill);
     stream_control(stream, STREAM_CTRL_GET_CACHE_IDLE, &stream_cache_idle);

@@ -38,40 +38,30 @@
 #include "vo.h"
 #include "video/mp_image.h"
 #include "sub/osd.h"
-#include "sub/img_convert.h"
+#include "gl_osd.h"
 
-// In theory, the number of RGBA subbitmaps the OSD code could give us is
-// unlimited; but in practice there will be rarely many elements.
-#define MAX_OSD_ELEMS MP_SUB_BB_LIST_MAX
-
-struct osd_elem {
-    DISPMANX_RESOURCE_HANDLE_T resource;
-    DISPMANX_ELEMENT_HANDLE_T element;
-};
-
-struct osd_part {
-    struct osd_elem elems[MAX_OSD_ELEMS];
-    int num_elems;
-    int change_id;
-    bool needed;
-};
+#include "gl_rpi.h"
 
 struct priv {
     DISPMANX_DISPLAY_HANDLE_T display;
     DISPMANX_ELEMENT_HANDLE_T window;
-    DISPMANX_RESOURCE_HANDLE_T window_back;
+    DISPMANX_ELEMENT_HANDLE_T osd_overlay;
     DISPMANX_UPDATE_HANDLE_T update;
     uint32_t w, h;
     double display_fps;
 
-    struct osd_part osd_parts[MAX_OSD_PARTS];
     double osd_pts;
     struct mp_osd_res osd_res;
+
+    struct mp_egl_rpi egl;
+    struct gl_shader_cache *sc;
+    struct mpgl_osd *osd;
+    int64_t osd_change_counter;
 
     MMAL_COMPONENT_T *renderer;
     bool renderer_enabled;
 
-    bool display_synced;
+    bool display_synced, skip_osd;
     struct mp_image *next_image;
 
     // for RAM input
@@ -89,6 +79,7 @@ struct priv {
 
     int display_nr;
     int layer;
+    int background;
 };
 
 // Magic alignments (in pixels) expected by the MMAL internals.
@@ -119,108 +110,48 @@ static size_t layout_buffer(struct mp_image *mpi, MMAL_BUFFER_HEADER_T *buffer,
     return size;
 }
 
-static void wipe_osd_part(struct vo *vo, struct osd_part *part)
-{
-    struct priv *p = vo->priv;
-
-    for (int n = 0; n < part->num_elems; n++) {
-        vc_dispmanx_element_remove(p->update, part->elems[n].element);
-        vc_dispmanx_resource_delete(part->elems[n].resource);
-    }
-    part->num_elems = 0;
-    part->change_id = -1;
-}
-
-static void wipe_osd(struct vo *vo)
-{
-    struct priv *p = vo->priv;
-
-    for (int x = 0; x < MAX_OSD_PARTS; x++)
-        wipe_osd_part(vo, &p->osd_parts[x]);
-}
-
-static int add_element(struct vo *vo, struct osd_part *part, int index,
-                       struct sub_bitmap *sub)
-{
-    struct priv *p = vo->priv;
-    VC_IMAGE_TYPE_T format = VC_IMAGE_ARGB8888; // assuming RPI is always LE
-
-    struct osd_elem *elem = &part->elems[index];
-    *elem = (struct osd_elem){0};
-
-    // I have no idea why stride must be passed in such a hacky way. It's not
-    // documented. Other software does it too. Other software claims aligning
-    // the width and "probably" the height is required too, but for me it works
-    // just fine without on rpi2. (See Weston's rpi renderer.)
-    elem->resource = vc_dispmanx_resource_create(format,
-                                                 sub->w | (sub->stride << 16),
-                                                 sub->h,
-                                                 &(int32_t){0});
-    if (!elem->resource) {
-        MP_ERR(vo, "Could not create %dx%d sub-bitmap\n", sub->w, sub->h);
-        return -1;
-    }
-
-    VC_RECT_T rc = {.width = sub->w, .height = sub->h};
-    vc_dispmanx_resource_write_data(elem->resource, format,
-                                    sub->stride, sub->bitmap, &rc);
-    VC_RECT_T src = {.width = sub->w << 16, .height = sub->h << 16};
-    VC_RECT_T dst = {.x = sub->x, .y = sub->y, .width = sub->dw, .height = sub->dh};
-    VC_DISPMANX_ALPHA_T alpha = {
-        .flags = DISPMANX_FLAGS_ALPHA_FROM_SOURCE | DISPMANX_FLAGS_ALPHA_PREMULT,
-        .opacity = 0xFF,
-    };
-    elem->element = vc_dispmanx_element_add(p->update, p->display, p->osd_layer,
-                                            &dst, elem->resource, &src,
-                                            DISPMANX_PROTECTION_NONE,
-                                            &alpha, 0, 0);
-    if (!elem->element) {
-        MP_ERR(vo, "Could not create sub-bitmap element\n");
-        return -1;
-    }
-
-    return 0;
-}
-
-static void osd_draw_cb(void *ctx, struct sub_bitmaps *imgs)
-{
-    struct vo *vo = ctx;
-    struct priv *p = vo->priv;
-    struct osd_part *part = &p->osd_parts[imgs->render_index];
-
-    part->needed = true;
-
-    if (imgs->change_id == part->change_id)
-        return;
-
-    wipe_osd_part(vo, part);
-    part->change_id = imgs->change_id;
-
-    for (int n = 0; n < imgs->num_parts; n++) {
-        if (part->num_elems == MAX_OSD_ELEMS) {
-            MP_ERR(vo, "Too many OSD elements.\n");
-            break;
-        }
-        int index = part->num_elems++;
-        if (add_element(vo, part, index, &imgs->parts[n]) < 0)
-            break;
-    }
-}
+#define GLSL(x) gl_sc_add(p->sc, #x "\n");
+#define GLSLF(...) gl_sc_addf(p->sc, __VA_ARGS__)
 
 static void update_osd(struct vo *vo)
 {
     struct priv *p = vo->priv;
 
-    for (int x = 0; x < MAX_OSD_PARTS; x++)
-        p->osd_parts[x].needed = false;
+    mpgl_osd_generate(p->osd, p->osd_res, p->osd_pts, 0, 0);
 
-    static const bool formats[SUBBITMAP_COUNT] = {[SUBBITMAP_RGBA] = true};
-    osd_draw(vo->osd, p->osd_res, p->osd_pts, 0, formats, osd_draw_cb, vo);
+    int64_t osd_change_counter = mpgl_get_change_counter(p->osd);
+    if (p->osd_change_counter == osd_change_counter) {
+        p->skip_osd = true;
+        return;
+    }
+    p->osd_change_counter = osd_change_counter;
 
-    for (int x = 0; x < MAX_OSD_PARTS; x++) {
-        struct osd_part *part = &p->osd_parts[x];
-        if (!part->needed)
-            wipe_osd_part(vo, part);
+    p->egl.gl->ClearColor(0, 0, 0, 0);
+    p->egl.gl->Clear(GL_COLOR_BUFFER_BIT);
+
+    for (int n = 0; n < MAX_OSD_PARTS; n++) {
+        enum sub_bitmap_format fmt = mpgl_osd_get_part_format(p->osd, n);
+        if (!fmt)
+            continue;
+        gl_sc_uniform_sampler(p->sc, "osdtex", GL_TEXTURE_2D, 0);
+        switch (fmt) {
+        case SUBBITMAP_RGBA: {
+            GLSLF("// OSD (RGBA)\n");
+            GLSL(vec4 color = texture(osdtex, texcoord).bgra;)
+            break;
+        }
+        case SUBBITMAP_LIBASS: {
+            GLSLF("// OSD (libass)\n");
+            GLSL(vec4 color =
+                vec4(ass_color.rgb, ass_color.a * texture(osdtex, texcoord).r);)
+            break;
+        }
+        default:
+            abort();
+        }
+        gl_sc_set_vao(p->sc, mpgl_osd_get_vao(p->osd));
+        gl_sc_gen_shader_and_reset(p->sc);
+        mpgl_osd_draw_part(p->osd, p->w, -p->h, n);
     }
 }
 
@@ -250,6 +181,25 @@ static void resize(struct vo *vo)
         MP_WARN(vo, "could not set video rectangle\n");
 }
 
+static void destroy_overlays(struct vo *vo)
+{
+    struct priv *p = vo->priv;
+
+    if (p->window)
+        vc_dispmanx_element_remove(p->update, p->window);
+    p->window = 0;
+
+    mpgl_osd_destroy(p->osd);
+    p->osd = NULL;
+    gl_sc_destroy(p->sc);
+    p->sc = NULL;
+    mp_egl_rpi_destroy(&p->egl);
+
+    if (p->osd_overlay)
+        vc_dispmanx_element_remove(p->update, p->osd_overlay);
+    p->osd_overlay = 0;
+}
+
 static int update_display_size(struct vo *vo)
 {
     struct priv *p = vo->priv;
@@ -268,24 +218,7 @@ static int update_display_size(struct vo *vo)
 
     MP_VERBOSE(vo, "Display size: %dx%d\n", p->w, p->h);
 
-    if (p->window)
-        vc_dispmanx_element_remove(p->update, p->window);
-    if (p->window_back)
-        vc_dispmanx_resource_delete(p->window_back);
-    p->window = 0;
-    p->window_back = 0;
-
-    VC_IMAGE_TYPE_T format = VC_IMAGE_ARGB8888; // assuming RPI is always LE
-    p->window_back = vc_dispmanx_resource_create(format, 1 | (4 << 16), 1,
-                                                 &(int32_t){0});
-    if (!p->window_back) {
-        MP_ERR(vo, "Could not create background bitmap.\n");
-        return -1;
-    }
-
-    uint32_t px = 0;
-    VC_RECT_T rc = {.width = 1, .height = 1};
-    vc_dispmanx_resource_write_data(p->window_back, format, 4, &px, &rc);
+    destroy_overlays(vo);
 
     // Use the whole screen.
     VC_RECT_T dst = {.width = p->w, .height = p->h};
@@ -294,13 +227,40 @@ static int update_display_size(struct vo *vo)
         .flags = DISPMANX_FLAGS_ALPHA_FIXED_ALL_PIXELS,
         .opacity = 0xFF,
     };
-    p->window = vc_dispmanx_element_add(p->update, p->display, p->background_layer,
-                                        &dst, p->window_back, &src,
-                                        DISPMANX_PROTECTION_NONE, &alpha, 0, 0);
-    if (!p->window) {
+
+    if (p->background) {
+        p->window = vc_dispmanx_element_add(p->update, p->display,
+                                            p->background_layer,
+                                            &dst, 0, &src,
+                                            DISPMANX_PROTECTION_NONE,
+                                            &alpha, 0, 0);
+        if (!p->window) {
+            MP_FATAL(vo, "Could not add DISPMANX element.\n");
+            return -1;
+        }
+    }
+
+    alpha = (VC_DISPMANX_ALPHA_T){
+        .flags = DISPMANX_FLAGS_ALPHA_FROM_SOURCE,
+        .opacity = 0xFF,
+    };
+    p->osd_overlay = vc_dispmanx_element_add(p->update, p->display,
+                                             p->osd_layer,
+                                             &dst, 0, &src,
+                                             DISPMANX_PROTECTION_NONE,
+                                             &alpha, 0, 0);
+    if (!p->osd_overlay) {
         MP_FATAL(vo, "Could not add DISPMANX element.\n");
         return -1;
     }
+
+    if (mp_egl_rpi_init(&p->egl, p->osd_overlay, p->w, p->h) < 0) {
+        MP_FATAL(vo, "EGL/GLES initialization for OSD renderer failed.\n");
+        return -1;
+    }
+    p->sc = gl_sc_create(p->egl.gl, vo->log, vo->global),
+    p->osd = mpgl_osd_init(p->egl.gl, vo->log, vo->osd);
+    p->osd_change_counter = -1; // force initial overlay rendering
 
     p->display_fps = 0;
     TV_GET_STATE_RESP_T tvstate;
@@ -345,8 +305,9 @@ static void flip_page(struct vo *vo)
     p->next_image = NULL;
 
     // For OSD
-    vc_dispmanx_update_submit_sync(p->update);
-    p->update = vc_dispmanx_update_start(10);
+    if (!p->skip_osd && p->egl.gl)
+        eglSwapBuffers(p->egl.egl_display, p->egl.egl_surface);
+    p->skip_osd = false;
 
     if (mpi) {
         MMAL_PORT_T *input = p->renderer->input[0];
@@ -387,12 +348,14 @@ static void draw_frame(struct vo *vo, struct vo_frame *frame)
 
     // Redraw only if the OSD has meaningfully changed, which we assume it
     // hasn't when a frame is merely repeated for display sync.
-    if (frame->redraw || !frame->repeat)
+    p->skip_osd = !frame->redraw && frame->repeat;
+
+    if (!p->skip_osd && p->egl.gl)
         update_osd(vo);
 
     p->display_synced = frame->display_synced;
 
-    if (vo->params->imgfmt != IMGFMT_MMAL) {
+    if (mpi && mpi->imgfmt != IMGFMT_MMAL) {
         MMAL_BUFFER_HEADER_T *buffer = mmal_queue_wait(p->swpool->queue);
         if (!buffer) {
             talloc_free(mpi);
@@ -572,8 +535,10 @@ static int control(struct vo *vo, uint32_t request, void *data)
     case VOCTRL_SET_PANSCAN:
         if (p->renderer_enabled)
             resize(vo);
+        vo->want_redraw = true;
         return VO_TRUE;
     case VOCTRL_REDRAW_FRAME:
+        p->osd_change_counter = -1;
         update_osd(vo);
         return VO_TRUE;
     case VOCTRL_SCREENSHOT_WIN:
@@ -622,12 +587,7 @@ static void uninit(struct vo *vo)
 
     talloc_free(p->next_image);
 
-    wipe_osd(vo);
-
-    if (p->window)
-        vc_dispmanx_element_remove(p->update, p->window);
-    if (p->window_back)
-        vc_dispmanx_resource_delete(p->window_back);
+    destroy_overlays(vo);
 
     if (p->update)
         vc_dispmanx_update_submit_sync(p->update);
@@ -637,8 +597,10 @@ static void uninit(struct vo *vo)
         mmal_component_release(p->renderer);
     }
 
-    if (p->display)
+    if (p->display) {
+        vc_dispmanx_vsync_callback(p->display, NULL, NULL);
         vc_dispmanx_display_close(p->display);
+    }
 
     mmal_vc_deinit();
 
@@ -653,6 +615,8 @@ static int preinit(struct vo *vo)
     p->background_layer = p->layer;
     p->video_layer = p->layer + 1;
     p->osd_layer = p->layer + 2;
+
+    p->egl.log = vo->log;
 
     bcm_host_init();
 
@@ -695,6 +659,7 @@ fail:
 static const struct m_option options[] = {
     OPT_INT("display", display_nr, 0),
     OPT_INT("layer", layer, 0, OPTDEF_INT(-10)),
+    OPT_FLAG("background", background, 0),
     {0},
 };
 
