@@ -4,8 +4,8 @@
 -- alphabetically, and adds entries before and after the current file to
 -- the internal playlist. (It stops if the it would add an already existing
 -- playlist entry at the same position - this makes it "stable".)
--- Add at most 5 * 2 files when starting a file (before + after).
-MAXENTRIES = 5
+-- Add at most 5000 * 2 files when starting a file (before + after).
+MAXENTRIES = 5000
 
 function Set (t)
     local set = {}
@@ -47,9 +47,12 @@ function find_and_add_entries()
     if #dir == 0 then
         return
     end
-    local isplaylist = mp.get_property("playlist-count")
-    if #isplaylist > 1 then
+    local pl_count = mp.get_property_number("playlist-count", 1)
+    if (pl_count > 1 and autoload == nil) or
+       (pl_count == 1 and EXTENSIONS[string.lower(get_extension(filename))] == nil) then
         return
+    else
+        autoload = true
     end
 
     local files = mputils.readdir(dir, "files")
