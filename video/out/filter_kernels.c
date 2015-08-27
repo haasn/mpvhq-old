@@ -182,6 +182,12 @@ static double hamming(params *p, double x)
     return 0.54 + 0.46 * cos(M_PI * x);
 }
 
+// Generalization of raised-power cosine windows to arbitrary exponents
+static double petsu(params *p, double x)
+{
+    return powf(cos(M_PI/2 * x), p->params[0]);
+}
+
 static double quadric(params *p, double x)
 {
     // NOTE: glumpy uses 0.75, AGG uses 0.5
@@ -325,6 +331,7 @@ const struct filter_window mp_filter_windows[] = {
     {"bartlett",       1,   triangle},
     {"hanning",        1,   hanning},
     {"hamming",        1,   hamming},
+    {"petsu",          1,   petsu,    .params = {2.5, NAN} },
     {"quadric",        1.5, quadric},
     {"welch",          1,   welch},
     {"kaiser",         1,   kaiser,   .params = {6.33, NAN} },
