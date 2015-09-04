@@ -96,15 +96,12 @@ static const struct gl_vao_entry vertex_vao[] = {
 
 struct texplane {
     int w, h;
-    int tex_w, tex_h;
     GLint gl_internal_format;
     GLenum gl_target;
     GLenum gl_format;
     GLenum gl_type;
     GLuint gl_texture;
     int gl_buffer;
-    int buffer_size;
-    void *buffer_ptr;
 };
 
 struct video_image {
@@ -138,7 +135,7 @@ struct fbosurface {
 struct src_tex {
     GLuint gl_tex;
     GLenum gl_target;
-    int tex_w, tex_h;
+    int w, h;
     struct mp_rect_f src;
 };
 
@@ -216,7 +213,6 @@ struct gl_video {
     bool use_linear;
     bool use_normalized_range;
     float user_gamma;
-    struct fbotex copy_fbos[4];
 
     int frames_uploaded;
     int frames_rendered;
@@ -373,10 +369,10 @@ const struct gl_video_opts gl_video_opts_hq_def = {
     .alpha_mode = 2,
     .background = {0, 0, 0, 255},
     .gamma = 1.0f,
+    .pbo = 1,
 };
 
 const struct gl_video_opts gl_video_opts_vhq_def = {
-    .npot = 1,
     .pbo = 1,
     .dither_depth = 0,
     .dither_size = 6,
@@ -622,9 +618,6 @@ static void uninit_rendering(struct gl_video *p)
     for (int n = 0; n < FBOSURFACES_MAX; n++)
         fbotex_uninit(&p->surfaces[n].fbotex);
 
-    for (int n = 0; n < 4; n++)
-        fbotex_uninit(&p->copy_fbos[n]);
-
     gl_video_reset_surfaces(p);
 }
 
@@ -671,8 +664,8 @@ static void pass_load_fbotex(struct gl_video *p, struct fbotex *src_fbo, int id,
     p->pass_tex[id] = (struct src_tex){
         .gl_tex = src_fbo->texture,
         .gl_target = GL_TEXTURE_2D,
-        .tex_w = src_fbo->tex_w,
-        .tex_h = src_fbo->tex_h,
+        .w = src_fbo->w,
+        .h = src_fbo->h,
         .src = {0, 0, w, h},
     };
 }
@@ -702,18 +695,18 @@ static void pass_set_image_textures(struct gl_video *p, struct video_image *vimg
     // Make sure luma/chroma sizes are aligned.
     // Example: For 4:2:0 with size 3x3, the subsampled chroma plane is 2x2
     // so luma (3,3) has to align with chroma (2,2).
-    chroma->m[0][0] = ls_w * (float)vimg->planes[0].tex_w
-                               / vimg->planes[1].tex_w;
-    chroma->m[1][1] = ls_h * (float)vimg->planes[0].tex_h
-                               / vimg->planes[1].tex_h;
+    chroma->m[0][0] = ls_w * (float)vimg->planes[0].w
+                               / vimg->planes[1].w;
+    chroma->m[1][1] = ls_h * (float)vimg->planes[0].h
+                               / vimg->planes[1].h;
 
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *t = &vimg->planes[n];
         p->pass_tex[n] = (struct src_tex){
             .gl_tex = vimg->planes[n].gl_texture,
             .gl_target = t->gl_target,
-            .tex_w = t->tex_w,
-            .tex_h = t->tex_h,
+            .w = t->w,
+            .h = t->h,
             .src = {0, 0, t->w, t->h},
         };
     }
@@ -750,16 +743,16 @@ static void init_video(struct gl_video *p)
 
     struct video_image *vimg = &p->image;
 
+    struct mp_image layout = {0};
+    mp_image_set_params(&layout, &p->image_params);
+
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *plane = &vimg->planes[n];
 
         plane->gl_target = p->gl_target;
 
-        plane->w = mp_chroma_div_up(p->image_params.w, p->image_desc.xs[n]);
-        plane->h = mp_chroma_div_up(p->image_params.h, p->image_desc.ys[n]);
-
-        plane->tex_w = plane->w;
-        plane->tex_h = plane->h;
+        plane->w = mp_image_plane_w(&layout, n);
+        plane->h = mp_image_plane_h(&layout, n);
 
         if (!p->hwdec_active) {
             gl->ActiveTexture(GL_TEXTURE0 + n);
@@ -767,7 +760,7 @@ static void init_video(struct gl_video *p)
             gl->BindTexture(p->gl_target, plane->gl_texture);
 
             gl->TexImage2D(p->gl_target, 0, plane->gl_internal_format,
-                           plane->tex_w, plane->tex_h, 0,
+                           plane->w, plane->h, 0,
                            plane->gl_format, plane->gl_type, NULL);
 
             gl->TexParameteri(p->gl_target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -776,8 +769,7 @@ static void init_video(struct gl_video *p)
             gl->TexParameteri(p->gl_target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         }
 
-        MP_VERBOSE(p, "Texture for plane %d: %dx%d\n",
-                   n, plane->tex_w, plane->tex_h);
+        MP_VERBOSE(p, "Texture for plane %d: %dx%d\n", n, plane->w, plane->h);
     }
     gl->ActiveTexture(GL_TEXTURE0);
 
@@ -802,8 +794,6 @@ static void uninit_video(struct gl_video *p)
         plane->gl_texture = 0;
         gl->DeleteBuffers(1, &plane->gl_buffer);
         plane->gl_buffer = 0;
-        plane->buffer_ptr = NULL;
-        plane->buffer_size = 0;
     }
     mp_image_unrefp(&vimg->mpi);
 
@@ -831,8 +821,8 @@ static void pass_prepare_src_tex(struct gl_video *p)
         gl_sc_uniform_sampler(sc, texture_name, s->gl_target, n);
         float f[2] = {1, 1};
         if (s->gl_target != GL_TEXTURE_RECTANGLE) {
-            f[0] = s->tex_w;
-            f[1] = s->tex_h;
+            f[0] = s->w;
+            f[1] = s->h;
         }
         gl_sc_uniform_vec2(sc, texture_size, f);
 
@@ -868,8 +858,8 @@ static void render_pass_quad(struct gl_video *p, int vp_w, int vp_h,
                 if (flags & 4)
                     MPSWAP(float, ty[0], ty[1]);
                 bool rect = s->gl_target == GL_TEXTURE_RECTANGLE;
-                v->texcoord[i].x = tx[n / 2] / (rect ? 1 : s->tex_w);
-                v->texcoord[i].y = ty[n % 2] / (rect ? 1 : s->tex_h);
+                v->texcoord[i].x = tx[n / 2] / (rect ? 1 : s->w);
+                v->texcoord[i].y = ty[n % 2] / (rect ? 1 : s->h);
             }
         }
     }
@@ -915,7 +905,7 @@ static void finish_pass_fbo(struct gl_video *p, struct fbotex *dst_fbo,
 {
     fbotex_change(dst_fbo, p->gl, p->log, w, h, p->opts.fbo_format, flags);
 
-    finish_pass_direct(p, dst_fbo->fbo, dst_fbo->tex_w, dst_fbo->tex_h,
+    finish_pass_direct(p, dst_fbo->fbo, dst_fbo->w, dst_fbo->h,
                        &(struct mp_rect){0, 0, w, h}, 0);
     pass_load_fbotex(p, dst_fbo, tex, w, h);
 }
@@ -941,8 +931,7 @@ static void load_shader(struct gl_video *p, const char *body)
 // Applies an arbitrary number of shaders in sequence, using the given pair
 // of FBOs as intermediate buffers. Returns whether any shaders were applied.
 static bool apply_shaders(struct gl_video *p, char **shaders,
-                          struct fbotex textures[2], int tex_num,
-                          int tex_w, int tex_h)
+                          struct fbotex textures[2], int tex_num, int w, int h)
 {
     if (!shaders)
         return false;
@@ -952,7 +941,7 @@ static bool apply_shaders(struct gl_video *p, char **shaders,
         const char *body = gl_sc_loadfile(p->sc, shaders[n]);
         if (!body)
             continue;
-        finish_pass_fbo(p, &textures[tex], tex_w, tex_h, tex_num, 0);
+        finish_pass_fbo(p, &textures[tex], w, h, tex_num, 0);
         load_shader(p, body);
         GLSLF("// custom shader\n");
         GLSLF("vec4 color = sample(texture%d, texcoord%d, texture_size%d);\n",
@@ -1411,42 +1400,11 @@ static void pass_sample(struct gl_video *p, int src_tex, struct scaler *scaler,
         GLSL(color.a = 1.0;)
 }
 
-static void pass_copy_from_rect(struct gl_video *p)
-{
-    struct src_tex new_pass_tex[TEXUNIT_VIDEO_NUM];
-    assert(sizeof(new_pass_tex) == sizeof(p->pass_tex));
-    memcpy(&new_pass_tex, &p->pass_tex, sizeof(p->pass_tex));
-    memset(&p->pass_tex, 0, sizeof(p->pass_tex));
-
-    for (int n = 0; n < TEXUNIT_VIDEO_NUM; n++) {
-        struct src_tex *src = &new_pass_tex[n];
-        if (src->gl_tex && src->gl_target == GL_TEXTURE_RECTANGLE) {
-            p->pass_tex[0] = (struct src_tex){
-                .gl_tex = src->gl_tex,
-                .gl_target = GL_TEXTURE_RECTANGLE,
-                .tex_w = src->tex_w,
-                .tex_h = src->tex_h,
-                .src = {0, 0, src->tex_w, src->tex_h},
-            };
-            const char *get = p->gl->version < 300 ? "texture2DRect" : "texture";
-            GLSLF("vec4 color = %s(texture0, texcoord0);\n", get);
-            finish_pass_fbo(p, &p->copy_fbos[n], src->tex_w, src->tex_h, 0, 0);
-            src->gl_tex = p->copy_fbos[n].texture;
-            src->gl_target = GL_TEXTURE_2D;
-        }
-    }
-
-    memcpy(&p->pass_tex, &new_pass_tex, sizeof(p->pass_tex));
-}
-
 // sample from video textures, set "color" variable to yuv value
 static void pass_read_video(struct gl_video *p)
 {
     struct gl_transform chromafix;
     pass_set_image_textures(p, &p->image, &chromafix);
-
-    if (p->gl->version < 300 && p->pass_tex[0].gl_target == GL_TEXTURE_RECTANGLE)
-        pass_copy_from_rect(p);
 
     // The custom shader logic is a bit tricky, but there are basically three
     // different places it can occur: RGB, or chroma *and* luma (which are
@@ -1485,6 +1443,7 @@ static void pass_read_video(struct gl_video *p)
 
     // Chroma preprocessing (merging -> shaders -> scaling)
     struct src_tex luma = p->pass_tex[0];
+    struct src_tex alpha = p->pass_tex[3];
     int c_w = p->pass_tex[1].src.x1 - p->pass_tex[1].src.x0;
     int c_h = p->pass_tex[1].src.y1 - p->pass_tex[1].src.y0;
     const struct scaler_config *cscale = &p->opts.scaler[2];
@@ -1545,6 +1504,7 @@ static void pass_read_video(struct gl_video *p)
     }
 
     p->pass_tex[0] = luma; // Restore the luma plane
+    p->pass_tex[3] = alpha; // Restore the alpha plane (if set)
     if (shader) {
         load_shader(p, shader);
         gl_sc_uniform_f(p->sc, "cmul", cmul);
@@ -2546,7 +2506,22 @@ void gl_video_resize(struct gl_video *p, int vp_w, int vp_h,
     gl_video_reset_surfaces(p);
 }
 
-static bool get_image(struct gl_video *p, struct mp_image *mpi)
+static bool unmap_image(struct gl_video *p, struct mp_image *mpi)
+{
+    GL *gl = p->gl;
+    bool ok = true;
+    struct video_image *vimg = &p->image;
+    for (int n = 0; n < p->plane_count; n++) {
+        struct texplane *plane = &vimg->planes[n];
+        gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, plane->gl_buffer);
+        ok = gl->UnmapBuffer(GL_PIXEL_UNPACK_BUFFER) && ok;
+        mpi->planes[n] = NULL; // PBO offset 0
+    }
+    gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    return ok;
+}
+
+static bool map_image(struct gl_video *p, struct mp_image *mpi)
 {
     GL *gl = p->gl;
 
@@ -2555,28 +2530,25 @@ static bool get_image(struct gl_video *p, struct mp_image *mpi)
 
     struct video_image *vimg = &p->image;
 
-    // See comments in init_video() about odd video sizes.
-    // The normal upload path does this too, but less explicit.
-    mp_image_set_size(mpi, vimg->planes[0].w, vimg->planes[0].h);
-
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *plane = &vimg->planes[n];
         mpi->stride[n] = mp_image_plane_w(mpi, n) * p->image_desc.bytes[n];
-        int needed_size = mp_image_plane_h(mpi, n) * mpi->stride[n];
-        if (!plane->gl_buffer)
+        if (!plane->gl_buffer) {
             gl->GenBuffers(1, &plane->gl_buffer);
-        gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, plane->gl_buffer);
-        if (needed_size > plane->buffer_size) {
-            plane->buffer_size = needed_size;
-            gl->BufferData(GL_PIXEL_UNPACK_BUFFER, plane->buffer_size,
+            gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, plane->gl_buffer);
+            size_t buffer_size = mp_image_plane_h(mpi, n) * mpi->stride[n];
+            gl->BufferData(GL_PIXEL_UNPACK_BUFFER, buffer_size,
                            NULL, GL_DYNAMIC_DRAW);
         }
-        if (!plane->buffer_ptr)
-            plane->buffer_ptr = gl->MapBuffer(GL_PIXEL_UNPACK_BUFFER,
-                                              GL_WRITE_ONLY);
-        mpi->planes[n] = plane->buffer_ptr;
+        gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, plane->gl_buffer);
+        mpi->planes[n] = gl->MapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
         gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        if (!mpi->planes[n]) {
+            unmap_image(p, mpi);
+            return false;
+        }
     }
+    memset(mpi->bufs, 0, sizeof(mpi->bufs));
     return true;
 }
 
@@ -2604,33 +2576,28 @@ static void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi)
 
     assert(mpi->num_planes == p->plane_count);
 
-    mp_image_t mpi2 = *mpi;
-    bool pbo = false;
-    if (!vimg->planes[0].buffer_ptr && get_image(p, &mpi2)) {
-        for (int n = 0; n < p->plane_count; n++) {
-            int line_bytes = mp_image_plane_w(mpi, n) * p->image_desc.bytes[n];
-            int plane_h = mp_image_plane_h(mpi, n);
-            memcpy_pic(mpi2.planes[n], mpi->planes[n], line_bytes, plane_h,
-                       mpi2.stride[n], mpi->stride[n]);
+    mp_image_t pbo_mpi = *mpi;
+    bool pbo = map_image(p, &pbo_mpi);
+    if (pbo) {
+        mp_image_copy(&pbo_mpi, mpi);
+        if (unmap_image(p, &pbo_mpi)) {
+            mpi = &pbo_mpi;
+        } else {
+            MP_FATAL(p, "Video PBO upload failed. Disabling PBOs.\n");
+            pbo = false;
+            p->opts.pbo = 0;
         }
-        pbo = true;
     }
-    vimg->image_flipped = mpi2.stride[0] < 0;
+
+    vimg->image_flipped = mpi->stride[0] < 0;
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *plane = &vimg->planes[n];
-        void *plane_ptr = mpi2.planes[n];
-        if (pbo) {
+        if (pbo)
             gl->BindBuffer(GL_PIXEL_UNPACK_BUFFER, plane->gl_buffer);
-            if (!gl->UnmapBuffer(GL_PIXEL_UNPACK_BUFFER))
-                MP_FATAL(p, "Video PBO upload failed. "
-                         "Remove the 'pbo' suboption.\n");
-            plane->buffer_ptr = NULL;
-            plane_ptr = NULL; // PBO offset 0
-        }
         gl->ActiveTexture(GL_TEXTURE0 + n);
         gl->BindTexture(p->gl_target, plane->gl_texture);
         glUploadTex(gl, p->gl_target, plane->gl_format, plane->gl_type,
-                    plane_ptr, mpi2.stride[n], 0, 0, plane->w, plane->h, 0);
+                    mpi->planes[n], mpi->stride[n], 0, 0, plane->w, plane->h, 0);
     }
     gl->ActiveTexture(GL_TEXTURE0);
     if (pbo)
