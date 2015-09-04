@@ -331,7 +331,7 @@ const struct filter_window mp_filter_windows[] = {
     {"bartlett",       1,   triangle},
     {"hanning",        1,   hanning},
     {"hamming",        1,   hamming},
-    {"petsu",          1,   petsu,    .params = {2.5, NAN} },
+    {"petsu",          1,   petsu,    .params = {1.5, NAN} },
     {"quadric",        1.5, quadric},
     {"welch",          1,   welch},
     {"kaiser",         1,   kaiser,   .params = {6.33, NAN} },
