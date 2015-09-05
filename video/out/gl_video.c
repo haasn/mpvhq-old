@@ -1750,20 +1750,11 @@ static void pass_scale_main(struct gl_video *p, struct gl_transform offset)
     }
 }
 
-// Defines a colorspace-dependent macro to obtain a sample's luminance
+// Defines a colorspace-dependent macro to obtain a sample's luminance, works
+// with both linear and companded RGB
 static void luma_header(struct gl_video *p)
 {
-    if (p->image_desc.flags & MP_IMGFLAG_YUV) {
-        GLSLH(#define luma(v) (v.x))
-        return;
-    }
-
-    if (p->image_desc.flags & MP_IMGFLAG_XYZ) {
-        GLSLH(#define luma(v) (v.y))
-        return;
-    }
-
-    // For RGB, obtain the luma conversion from the XYZ matrix
+    // Obtain the luma coefficients from the RGB->XYZ matrix's Y column
     float m[3][3];
     struct mp_csp_primaries csp = mp_get_csp_primaries(p->image_params.primaries);
     mp_get_rgb2xyz_matrix(csp, m);
@@ -2155,10 +2146,6 @@ static void pass_render_frame(struct gl_video *p)
 
     p->use_linear = p->opts.linear_scaling || p->opts.sigmoid_upscaling;
     pass_read_video(p);
-
-    struct gl_transform offset = {{{1.0, 0.0}, {0.0, 1.0}}, {0.0, 0.0}};
-    pass_scale_pre(p, &offset);
-
     pass_convert_yuv(p);
 
     // For subtitles
@@ -2182,6 +2169,8 @@ static void pass_render_frame(struct gl_video *p)
     apply_shaders(p, p->opts.pre_shaders, &p->pre_fbo[0], 0,
                   p->image_w, p->image_h);
 
+    struct gl_transform offset = {{{1.0, 0.0}, {0.0, 1.0}}, {0.0, 0.0}};
+    pass_scale_pre(p, &offset);
     pass_scale_main(p, offset);
 
     int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
