@@ -196,6 +196,7 @@ struct gl_video {
     int surface_now;
     int frames_drawn;
     bool is_interpolated;
+    bool output_fbo_valid;
 
     // state for luma (0), luma-down(1), chroma (2) and temporal (3) scalers
     struct scaler scaler[4];
@@ -566,6 +567,7 @@ static void gl_video_reset_surfaces(struct gl_video *p)
     p->surface_idx = 0;
     p->surface_now = 0;
     p->frames_drawn = 0;
+    p->output_fbo_valid = false;
 }
 
 static inline int fbosurface_wrap(int id)
@@ -2418,10 +2420,11 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame, int fbo)
             int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
                 vp_h = p->dst_rect.y1 - p->dst_rect.y0;
 
-            if (!frame->redraw || !vimg->mpi || !p->output_fbo.texture) {
+            if (!frame->redraw || !p->output_fbo_valid) {
                 gl_video_upload_image(p, frame->current);
                 pass_render_frame(p);
                 finish_pass_fbo(p, &p->output_fbo, vp_w, vp_h, 0, FBOTEX_FUZZY);
+                p->output_fbo_valid = true;
             }
             pass_load_fbotex(p, &p->output_fbo, 0, vp_w, vp_h);
             GLSL(vec4 color = texture(texture0, texcoord0);)
