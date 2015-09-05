@@ -67,6 +67,14 @@ struct scaler {
     struct filter_kernel kernel_storage;
 };
 
+struct deband_opts {
+    int enabled;
+    int iterations;
+    float threshold;
+    float range;
+    float grain;
+};
+
 struct gl_video_opts {
     struct scaler_config scaler[4];
     float gamma;
@@ -99,6 +107,8 @@ struct gl_video_opts {
     int super_xbr;
     float xbr_edge_str;
     float xbr_weight;
+    int deband;
+    struct deband_opts *deband_opts;
 };
 
 extern const struct m_sub_options gl_video_conf;
