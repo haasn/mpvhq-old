@@ -2418,7 +2418,7 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame, int fbo)
             int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
                 vp_h = p->dst_rect.y1 - p->dst_rect.y0;
 
-            if (!frame->redraw || !vimg->mpi) {
+            if (!frame->redraw || !vimg->mpi || !p->output_fbo.texture) {
                 gl_video_upload_image(p, frame->current);
                 pass_render_frame(p);
                 finish_pass_fbo(p, &p->output_fbo, vp_w, vp_h, 0, FBOTEX_FUZZY);
