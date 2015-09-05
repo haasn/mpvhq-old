@@ -181,6 +181,7 @@ struct gl_video {
     struct fbotex source_fbo;
     struct fbotex indirect_fbo;
     struct fbotex blend_subs_fbo;
+    struct fbotex output_fbo;
     struct fbosurface surfaces[FBOSURFACES_MAX];
 
     // these are duplicated so we can keep rendering back and forth between
@@ -2412,10 +2413,18 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame, int fbo)
         if (p->opts.interpolation && (p->frames_drawn || !frame->still)) {
             gl_video_interpolate_frame(p, frame, fbo);
         } else {
-            // Skip interpolation if there's nothing to be done
-            if (!frame->redraw || !vimg->mpi)
+            // For the non-interplation case, we just draw to a single "cache"
+            // FBO to speed up subsequent re-draws
+            int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
+                vp_h = p->dst_rect.y1 - p->dst_rect.y0;
+
+            if (!frame->redraw || !vimg->mpi) {
                 gl_video_upload_image(p, frame->current);
-            pass_render_frame(p);
+                pass_render_frame(p);
+                finish_pass_fbo(p, &p->output_fbo, vp_w, vp_h, 0, FBOTEX_FUZZY);
+            }
+            pass_load_fbotex(p, &p->output_fbo, 0, vp_w, vp_h);
+            GLSL(vec4 color = texture(texture0, texcoord0);)
             pass_draw_to_screen(p, fbo);
         }
     }
