@@ -76,6 +76,7 @@ struct deband_opts {
 };
 
 struct gl_video_opts {
+    int dumb_mode;
     struct scaler_config scaler[4];
     float gamma;
     int gamma_auto;

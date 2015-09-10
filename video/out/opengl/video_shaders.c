@@ -195,7 +195,6 @@ void super_xbr_header(struct gl_shader_cache *sc, int pass,
     GLSLHF("}\n");
 }
 
-
 // Set up shared/commonly used variables
 void sampler_prelude(struct gl_shader_cache *sc, int tex_num)
 {

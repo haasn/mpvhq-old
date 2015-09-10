@@ -32,6 +32,7 @@
 #include "video.h"
 
 #include "misc/bstr.h"
+#include "options/m_config.h"
 #include "common.h"
 #include "utils.h"
 #include "hwdec.h"
@@ -369,6 +370,8 @@ const struct gl_video_opts gl_video_opts_vhq_def = {
         {{"ewa_lanczossoft",  .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // cscale
         {{"robidoux",         .params={NAN, NAN}}, {.params = {NAN, NAN}}}, // tscale
     },
+    .xbr_edge_str = 1.0,
+    .xbr_weight = 1.0,
     .alpha_mode = 2,
     .background = {0, 0, 0, 255},
     .gamma = 1.0f,
@@ -400,6 +403,7 @@ static int validate_window_opt(struct mp_log *log, const m_option_t *opt,
 
 const struct m_sub_options gl_video_conf = {
     .opts = (const m_option_t[]) {
+        OPT_FLAG("dumb-mode", dumb_mode, 0),
         OPT_FLOATRANGE("gamma", gamma, 0, 0.1, 2.0),
         OPT_FLAG("gamma-auto", gamma_auto, 0),
         OPT_CHOICE_C("target-prim", target_prim, 0, mp_csp_prim_names),
@@ -460,6 +464,7 @@ const struct m_sub_options gl_video_conf = {
         OPT_REMOVED("scale-sep", "this is set automatically whenever sane"),
         OPT_REMOVED("indirect", "this is set automatically whenever sane"),
         OPT_REMOVED("srgb", "use target-prim=bt709:target-trc=srgb instead"),
+        OPT_REMOVED("source-shader", "use :deband to enable debanding"),
 
         OPT_REPLACED("lscale", "scale"),
         OPT_REPLACED("lscale-down", "scale-down"),
@@ -483,9 +488,10 @@ const struct m_sub_options gl_video_conf = {
 
 static void uninit_rendering(struct gl_video *p);
 static void uninit_scaler(struct gl_video *p, struct scaler *scaler);
-static bool check_gl_features(struct gl_video *p);
+static void check_gl_features(struct gl_video *p);
 static bool init_format(int fmt, struct gl_video *init);
 static void gl_video_upload_image(struct gl_video *p, struct mp_image *mpi);
+static void assign_options(struct gl_video_opts *dst, struct gl_video_opts *src);
 
 #define GLSL(x) gl_sc_add(p->sc, #x "\n");
 #define GLSLF(...) gl_sc_addf(p->sc, __VA_ARGS__)
@@ -661,10 +667,8 @@ static void pass_set_image_textures(struct gl_video *p, struct video_image *vimg
     // Make sure luma/chroma sizes are aligned.
     // Example: For 4:2:0 with size 3x3, the subsampled chroma plane is 2x2
     // so luma (3,3) has to align with chroma (2,2).
-    chroma->m[0][0] = ls_w * (float)vimg->planes[0].w
-                               / vimg->planes[1].w;
-    chroma->m[1][1] = ls_h * (float)vimg->planes[0].h
-                               / vimg->planes[1].h;
+    chroma->m[0][0] = ls_w * (float)vimg->planes[0].w / vimg->planes[1].w;
+    chroma->m[1][1] = ls_h * (float)vimg->planes[0].h / vimg->planes[1].h;
 
     for (int n = 0; n < p->plane_count; n++) {
         struct texplane *t = &vimg->planes[n];
@@ -1314,6 +1318,32 @@ static void get_scale_factors(struct gl_video *p, double xy[2])
             (double)(p->src_rect.y1 - p->src_rect.y0);
 }
 
+// Compute the cropped and rotated transformation of the video source rectangle.
+// vp_w and vp_h are set to the _destination_ video size.
+static void compute_src_transform(struct gl_video *p, struct gl_transform *tr,
+                                  int *vp_w, int *vp_h)
+{
+    float sx = (p->src_rect.x1 - p->src_rect.x0) / (float)p->image_w,
+          sy = (p->src_rect.y1 - p->src_rect.y0) / (float)p->image_h,
+          ox = p->src_rect.x0,
+          oy = p->src_rect.y0;
+    struct gl_transform transform = {{{sx,0.0}, {0.0,sy}}, {ox,oy}};
+
+    int xc = 0, yc = 1;
+    *vp_w = p->dst_rect.x1 - p->dst_rect.x0,
+    *vp_h = p->dst_rect.y1 - p->dst_rect.y0;
+
+    if ((p->image_params.rotate % 180) == 90) {
+        MPSWAP(float, transform.m[0][xc], transform.m[0][yc]);
+        MPSWAP(float, transform.m[1][xc], transform.m[1][yc]);
+        MPSWAP(float, transform.t[0], transform.t[1]);
+        MPSWAP(int, xc, yc);
+        MPSWAP(int, *vp_w, *vp_h);
+    }
+
+    *tr = transform;
+}
+
 // Takes care of the main scaling and pre/post-conversions
 static void pass_scale_main(struct gl_video *p, struct gl_transform offset)
 {
@@ -1364,27 +1394,9 @@ static void pass_scale_main(struct gl_video *p, struct gl_transform offset)
                 sig_center, sig_scale, sig_offset, sig_slope);
     }
 
-    // Compute the cropped and rotated transformation
-    float sx = (p->src_rect.x1 - p->src_rect.x0) / (float)p->image_w,
-          sy = (p->src_rect.y1 - p->src_rect.y0) / (float)p->image_h,
-          ox = p->src_rect.x0,
-          oy = p->src_rect.y0;
-    struct gl_transform transform = {{{sx,0.0}, {0.0,sy}}, {ox,oy}};
-
-    // Post-compose any offset from the pre-scaler
-    gl_transform_trans(offset, &transform);
-
-    int xc = 0, yc = 1,
-        vp_w = p->dst_rect.x1 - p->dst_rect.x0,
-        vp_h = p->dst_rect.y1 - p->dst_rect.y0;
-
-    if ((p->image_params.rotate % 180) == 90) {
-        MPSWAP(float, transform.m[0][xc], transform.m[0][yc]);
-        MPSWAP(float, transform.m[1][xc], transform.m[1][yc]);
-        MPSWAP(float, transform.t[0], transform.t[1]);
-        MPSWAP(int, xc, yc);
-        MPSWAP(int, vp_w, vp_h);
-    }
+    struct gl_transform transform;
+    int vp_w, vp_h;
+    compute_src_transform(p, &transform, &vp_w, &vp_h);
 
     GLSLF("// main scaling\n");
     finish_pass_fbo(p, &p->indirect_fbo, p->image_w, p->image_h, 0, 0);
@@ -1622,10 +1634,52 @@ static void pass_draw_osd(struct gl_video *p, int draw_flags, double pts,
     gl_sc_set_vao(p->sc, &p->vao);
 }
 
+// Minimal rendering code path, for GLES or OpenGL 2.1 without proper FBOs.
+static void pass_render_frame_dumb(struct gl_video *p, int fbo)
+{
+    p->gl->BindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    struct gl_transform chromafix;
+    pass_set_image_textures(p, &p->image, &chromafix);
+
+    struct gl_transform transform;
+    int vp_w, vp_h;
+    compute_src_transform(p, &transform, &vp_w, &vp_h);
+
+    struct gl_transform tchroma = transform;
+    tchroma.t[0] /= 1 << p->image_desc.chroma_xs;
+    tchroma.t[1] /= 1 << p->image_desc.chroma_ys;
+
+    gl_transform_rect(transform, &p->pass_tex[0].src);
+    for (int n = 1; n < 3; n++) {
+        gl_transform_rect(chromafix, &p->pass_tex[n].src);
+        gl_transform_rect(tchroma, &p->pass_tex[n].src);
+    }
+    gl_transform_rect(transform, &p->pass_tex[3].src);
+
+    GLSL(vec4 color = texture(texture0, texcoord0);)
+    if (p->image_params.imgfmt == IMGFMT_NV12 ||
+        p->image_params.imgfmt == IMGFMT_NV21)
+    {
+        GLSL(color.gb = texture(texture1, texcoord1).RG;)
+    } else if (p->plane_count >= 3) {
+        GLSL(color.g = texture(texture1, texcoord1).r;)
+        GLSL(color.b = texture(texture2, texcoord2).r;)
+    }
+    if (p->plane_count >= 4)
+        GLSL(color.a = texture(texture3, texcoord3).r;);
+
+    p->use_normalized_range = false;
+    pass_convert_yuv(p);
+}
+
 // The main rendering function, takes care of everything up to and including
 // upscaling. p->image is rendered.
 static void pass_render_frame(struct gl_video *p)
 {
+    if (p->opts.dumb_mode)
+        return;
+
     // Initialize per-pass size variables
     p->image_w = p->image_params.w;
     p->image_h = p->image_params.h;
@@ -1690,6 +1744,9 @@ static void pass_render_frame(struct gl_video *p)
 
 static void pass_draw_to_screen(struct gl_video *p, int fbo)
 {
+    if (p->opts.dumb_mode)
+        pass_render_frame_dumb(p, fbo);
+
     // Adjust the overall gamma before drawing to screen
     if (p->user_gamma != 1) {
         gl_sc_uniform_f(p->sc, "user_gamma", p->user_gamma);
@@ -2062,7 +2119,7 @@ static bool test_fbo(struct gl_video *p)
 }
 
 // Disable features that are not supported with the current OpenGL version.
-static bool check_gl_features(struct gl_video *p)
+static void check_gl_features(struct gl_video *p)
 {
     GL *gl = p->gl;
     bool have_float_tex = gl->mpgl_caps & MPGL_CAP_FLOAT_TEX;
@@ -2071,11 +2128,33 @@ static bool check_gl_features(struct gl_video *p)
     bool have_3d_tex = gl->mpgl_caps & MPGL_CAP_3D_TEX;
     bool have_mix = gl->glsl_version >= 130;
 
-    // Immediately error out if FBOs are missing, since they are required
-    // for basic operation.
-    if (!have_fbo || !test_fbo(p)) {
-        MP_ERR(p, "FBOs unsupported, required for vo_opengl.\n");
-        return false;
+    if (gl->es && p->opts.pbo) {
+        p->opts.pbo = 0;
+        MP_WARN(p, "Disabling PBOs (GLES unsupported).\n");
+    }
+
+    if (p->opts.dumb_mode || gl->es || !have_fbo || !test_fbo(p)) {
+        if (!p->opts.dumb_mode) {
+            MP_WARN(p, "High bit depth FBOs unsupported. Enabling dumb mode.\n"
+                       "Most extended features will be disabled.\n");
+        }
+        p->use_lut_3d = false;
+        // Most things don't work, so whitelist all options that still work.
+        struct gl_video_opts new_opts = {
+            .gamma = p->opts.gamma,
+            .gamma_auto = p->opts.gamma_auto,
+            .pbo = p->opts.pbo,
+            .fbo_format = p->opts.fbo_format,
+            .alpha_mode = p->opts.alpha_mode,
+            .chroma_location = p->opts.chroma_location,
+            .use_rectangle = p->opts.use_rectangle,
+            .background = p->opts.background,
+            .dither_algo = -1,
+            .dumb_mode = 1,
+        };
+        assign_options(&p->opts, &new_opts);
+        p->opts.deband_opts = m_config_alloc_struct(NULL, &deband_conf);
+        return;
     }
 
     // Normally, we want to disable them by default if FBOs are unavailable,
@@ -2105,12 +2184,6 @@ static bool check_gl_features(struct gl_video *p)
         MP_WARN(p, "Disabling color management (GLES unsupported).\n");
     }
 
-    // Missing float textures etc. (maybe ordered would actually work)
-    if (p->opts.dither_algo >= 0 && gl->es) {
-        p->opts.dither_algo = -1;
-        MP_WARN(p, "Disabling dithering (GLES unsupported).\n");
-    }
-
     int use_cms = p->opts.target_prim != MP_CSP_PRIM_AUTO ||
                   p->opts.target_trc != MP_CSP_TRC_AUTO || p->use_lut_3d;
 
@@ -2126,22 +2199,13 @@ static bool check_gl_features(struct gl_video *p)
         p->use_lut_3d = false;
         MP_WARN(p, "Disabling color management (GLSL version too old).\n");
     }
-    if (gl->es && p->opts.pbo) {
-        p->opts.pbo = 0;
-        MP_WARN(p, "Disabling PBOs (GLES unsupported).\n");
-    }
-
-    return true;
 }
 
-static bool init_gl(struct gl_video *p)
+static void init_gl(struct gl_video *p)
 {
     GL *gl = p->gl;
 
     debug_check_gl(p, "before init_gl");
-
-    if (!check_gl_features(p))
-        return false;
 
     gl->Disable(GL_DITHER);
 
@@ -2174,8 +2238,6 @@ static bool init_gl(struct gl_video *p)
     }
 
     debug_check_gl(p, "after init_gl");
-
-    return true;
 }
 
 void gl_video_uninit(struct gl_video *p)
@@ -2197,6 +2259,7 @@ void gl_video_uninit(struct gl_video *p)
 
     gl_set_debug_logger(gl, NULL);
 
+    assign_options(&p->opts, &(struct gl_video_opts){0});
     talloc_free(p);
 }
 
@@ -2422,11 +2485,7 @@ struct gl_video *gl_video_init(GL *gl, struct mp_log *log, struct mpv_global *g)
         .sc = gl_sc_create(gl, log, g),
     };
     gl_video_set_debug(p, true);
-    if (!init_gl(p)) {
-        mp_err(log, "Failed to initialize OpenGL.\n");
-        gl_video_uninit(p);
-        return NULL;
-    }
+    init_gl(p);
     recreate_osd(p);
     return p;
 }
@@ -2463,26 +2522,35 @@ static char **dup_str_array(void *parent, char **src)
     return res;
 }
 
+static void assign_options(struct gl_video_opts *dst, struct gl_video_opts *src)
+{
+    talloc_free(dst->source_shader);
+    talloc_free(dst->scale_shader);
+    talloc_free(dst->pre_shaders);
+    talloc_free(dst->post_shaders);
+    talloc_free(dst->deband_opts);
+
+    *dst = *src;
+
+    if (src->deband_opts)
+        dst->deband_opts = m_sub_options_copy(NULL, &deband_conf, src->deband_opts);
+
+    for (int n = 0; n < 4; n++) {
+        dst->scaler[n].kernel.name =
+            (char *)handle_scaler_opt(dst->scaler[n].kernel.name, n == 3);
+    }
+
+    dst->source_shader = talloc_strdup(NULL, dst->source_shader);
+    dst->scale_shader = talloc_strdup(NULL, dst->scale_shader);
+    dst->pre_shaders = dup_str_array(NULL, dst->pre_shaders);
+    dst->post_shaders = dup_str_array(NULL, dst->post_shaders);
+}
+
 // Set the options, and possibly update the filter chain too.
 // Note: assumes all options are valid and verified by the option parser.
 void gl_video_set_options(struct gl_video *p, struct gl_video_opts *opts)
 {
-    talloc_free(p->opts.source_shader);
-    talloc_free(p->opts.scale_shader);
-    talloc_free(p->opts.pre_shaders);
-    talloc_free(p->opts.post_shaders);
-
-    p->opts = *opts;
-
-    for (int n = 0; n < 4; n++) {
-        p->opts.scaler[n].kernel.name =
-            (char *)handle_scaler_opt(p->opts.scaler[n].kernel.name, n==3);
-    }
-
-    p->opts.source_shader = talloc_strdup(p, p->opts.source_shader);
-    p->opts.scale_shader = talloc_strdup(p, p->opts.scale_shader);
-    p->opts.pre_shaders = dup_str_array(p, p->opts.pre_shaders);
-    p->opts.post_shaders = dup_str_array(p, p->opts.post_shaders);
+    assign_options(&p->opts, opts);
 
     check_gl_features(p);
     uninit_rendering(p);
