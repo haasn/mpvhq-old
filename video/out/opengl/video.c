@@ -37,6 +37,7 @@
 #include "utils.h"
 #include "hwdec.h"
 #include "osd.h"
+#include "stream/stream.h"
 #include "video_shaders.h"
 #include "video/out/filter_kernels.h"
 #include "video/out/aspect.h"
@@ -52,8 +53,6 @@
 static const char *const fixed_scale_filters[] = {
     "bilinear",
     "bicubic_fast",
-    "sharpen3",
-    "sharpen5",
     "oversample",
     "custom",
     NULL
@@ -118,6 +117,11 @@ struct src_tex {
     struct mp_rect_f src;
 };
 
+struct cached_file {
+    char *path;
+    char *body;
+};
+
 struct gl_video {
     GL *gl;
 
@@ -161,6 +165,7 @@ struct gl_video {
     struct fbotex indirect_fbo;
     struct fbotex blend_subs_fbo;
     struct fbotex output_fbo;
+    struct fbotex unsharp_fbo;
     struct fbosurface surfaces[FBOSURFACES_MAX];
 
     // these are duplicated so we can keep rendering back and forth between
@@ -201,6 +206,9 @@ struct gl_video {
     // Cached because computing it can take relatively long
     int last_dither_matrix_size;
     float *last_dither_matrix;
+
+    struct cached_file files[10];
+    int num_files;
 
     struct gl_hwdec *hwdec;
     bool hwdec_active;
@@ -458,6 +466,7 @@ const struct m_sub_options gl_video_conf = {
         OPT_FLOAT("xbr-weight", xbr_weight, 0),
         OPT_FLAG("deband", deband, 0),
         OPT_SUBSTRUCT("deband", deband_opts, deband_conf, 0),
+        OPT_FLOAT("sharpen", unsharp, 0),
 
         OPT_REMOVED("approx-gamma", "this is always enabled now"),
         OPT_REMOVED("cscale-down", "chroma is never downscaled"),
@@ -512,6 +521,35 @@ static const struct fmt_entry *find_tex_format(GL *gl, int bytes_per_comp,
         fmts = gl_byte_formats_legacy;
     }
     return &fmts[n_channels - 1 + (bytes_per_comp - 1) * 4];
+}
+
+static const char *load_cached_file(struct gl_video *p, const char *path)
+{
+    if (!path || !path[0])
+        return NULL;
+    for (int n = 0; n < p->num_files; n++) {
+        if (strcmp(p->files[n].path, path) == 0)
+            return p->files[n].body;
+    }
+    // not found -> load it
+    if (p->num_files == MP_ARRAY_SIZE(p->files)) {
+        // empty cache when it overflows
+        for (int n = 0; n < p->num_files; n++) {
+            talloc_free(p->files[n].path);
+            talloc_free(p->files[n].body);
+        }
+        p->num_files = 0;
+    }
+    struct bstr s = stream_read_file(path, p, p->global, 100000); // 100 kB
+    if (s.len) {
+        struct cached_file *new = &p->files[p->num_files++];
+        *new = (struct cached_file) {
+            .path = talloc_strdup(p, path),
+            .body = s.start
+        };
+        return new->body;
+    }
+    return NULL;
 }
 
 static void debug_check_gl(struct gl_video *p, const char *msg)
@@ -581,6 +619,7 @@ static void uninit_rendering(struct gl_video *p)
     fbotex_uninit(&p->chroma_deband_fbo);
     fbotex_uninit(&p->indirect_fbo);
     fbotex_uninit(&p->blend_subs_fbo);
+    fbotex_uninit(&p->unsharp_fbo);
 
     for (int n = 0; n < 2; n++) {
         fbotex_uninit(&p->pre_fbo[n]);
@@ -695,6 +734,7 @@ static void init_video(struct gl_video *p)
         if (p->hwdec->driver->reinit(p->hwdec, &p->image_params) < 0)
             MP_ERR(p, "Initializing texture for hardware decoding failed.\n");
         init_format(p->image_params.imgfmt, p);
+        p->image_params.imgfmt = p->image_desc.id;
         p->gl_target = p->hwdec->gl_texture_target;
     }
 
@@ -908,7 +948,7 @@ static bool apply_shaders(struct gl_video *p, char **shaders,
     bool success = false;
     int tex = 0;
     for (int n = 0; shaders[n]; n++) {
-        const char *body = gl_sc_loadfile(p->sc, shaders[n]);
+        const char *body = load_cached_file(p, shaders[n]);
         if (!body)
             continue;
         finish_pass_fbo(p, &textures[tex], w, h, tex_num, 0);
@@ -1100,14 +1140,10 @@ static void pass_sample(struct gl_video *p, int src_tex, struct scaler *scaler,
         GLSL(vec4 color = texture(tex, pos);)
     } else if (strcmp(name, "bicubic_fast") == 0) {
         pass_sample_bicubic_fast(p->sc);
-    } else if (strcmp(name, "sharpen3") == 0) {
-        pass_sample_sharpen3(p->sc, scaler);
-    } else if (strcmp(name, "sharpen5") == 0) {
-        pass_sample_sharpen5(p->sc, scaler);
     } else if (strcmp(name, "oversample") == 0) {
         pass_sample_oversample(p->sc, scaler, w, h);
     } else if (strcmp(name, "custom") == 0) {
-        const char *body = gl_sc_loadfile(p->sc, p->opts.scale_shader);
+        const char *body = load_cached_file(p, p->opts.scale_shader);
         if (body) {
             load_shader(p, body);
             GLSLF("// custom scale-shader\n");
@@ -1168,8 +1204,9 @@ static void pass_read_video(struct gl_video *p)
         }
 
         if (p->opts.deband) {
-            pass_sample_deband(p->sc, p->opts.deband_opts, 1, merged ? 1.0 : tex_mul,
-                               p->image_w, p->image_h, &p->lfg);
+            pass_sample_deband(p->sc, p->opts.deband_opts, 1, p->gl_target,
+                               merged ? 1.0 : tex_mul, p->image_w, p->image_h,
+                               &p->lfg);
             GLSL(color.zw = vec2(0.0, 1.0);) // skip unused
             finish_pass_fbo(p, &p->chroma_deband_fbo, c_w, c_h, 1, 0);
             p->use_normalized_range = true;
@@ -1203,7 +1240,7 @@ static void pass_read_video(struct gl_video *p)
     GLSL(vec4 main;)
     GLSLF("{\n");
     if (p->opts.deband) {
-        pass_sample_deband(p->sc, p->opts.deband_opts, 0, tex_mul,
+        pass_sample_deband(p->sc, p->opts.deband_opts, 0, p->gl_target, tex_mul,
                            p->image_w, p->image_h, &p->lfg);
         p->use_normalized_range = true;
     } else {
@@ -1709,6 +1746,11 @@ static void pass_render_frame(struct gl_video *p)
     apply_shaders(p, p->opts.pre_shaders, &p->pre_fbo[0], 0,
                   p->image_w, p->image_h);
 
+    if (p->opts.unsharp != 0.0) {
+        finish_pass_fbo(p, &p->unsharp_fbo, p->image_w, p->image_h, 0, 0);
+        pass_sample_unsharp(p->sc, p->opts.unsharp);
+    }
+
     struct gl_transform offset = {{{1.0, 0.0}, {0.0, 1.0}}, {0.0, 0.0}};
     pass_scale_pre(p, &offset);
     pass_scale_main(p, offset);
@@ -2146,7 +2188,6 @@ static void check_gl_features(struct gl_video *p)
             .pbo = p->opts.pbo,
             .fbo_format = p->opts.fbo_format,
             .alpha_mode = p->opts.alpha_mode,
-            .chroma_location = p->opts.chroma_location,
             .use_rectangle = p->opts.use_rectangle,
             .background = p->opts.background,
             .dither_algo = -1,
@@ -2482,7 +2523,7 @@ struct gl_video *gl_video_init(GL *gl, struct mp_log *log, struct mpv_global *g)
         .gl_target = GL_TEXTURE_2D,
         .texture_16bit_depth = 16,
         .scaler = {{.index = 0}, {.index = 1}, {.index = 2}, {.index = 3}},
-        .sc = gl_sc_create(gl, log, g),
+        .sc = gl_sc_create(gl, log),
     };
     gl_video_set_debug(p, true);
     init_gl(p);

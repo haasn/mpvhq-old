@@ -159,24 +159,11 @@ static struct af_instance *af_create(struct af_stream *s, char *name,
         MP_ERR(s, "Couldn't find audio filter '%s'.\n", name);
         return NULL;
     }
-    const struct af_info *info = desc.p;
-    /* Make sure that the filter is not already in the list if it is
-       non-reentrant */
-    if (info->flags & AF_FLAGS_NOT_REENTRANT) {
-        for (struct af_instance *cur = s->first; cur; cur = cur->next) {
-            if (cur->info == info) {
-                MP_ERR(s, "There can only be one "
-                       "instance of the filter '%s' in each stream\n", name);
-                return NULL;
-            }
-        }
-    }
-
     MP_VERBOSE(s, "Adding filter %s \n", name);
 
     struct af_instance *af = talloc_zero(NULL, struct af_instance);
     *af = (struct af_instance) {
-        .info = info,
+        .info = desc.p,
         .data = talloc_zero(af, struct mp_audio),
         .log = mp_log_new(af, s->log, name),
         .replaygain_data = s->replaygain_data,
@@ -693,6 +680,18 @@ void af_control_all(struct af_stream *s, int cmd, void *arg)
 {
     for (struct af_instance *af = s->first; af; af = af->next)
         af->control(af, cmd, arg);
+}
+
+int af_control_by_label(struct af_stream *s, int cmd, void *arg, bstr label)
+{
+    char *label_str = bstrdup0(NULL, label);
+    struct af_instance *cur = af_find_by_label(s, label_str);
+    talloc_free(label_str);
+    if (cur) {
+        return cur->control ? cur->control(cur, cmd, arg) : CONTROL_NA;
+    } else {
+        return CONTROL_UNKNOWN;
+    }
 }
 
 // Used by filters to add a filtered frame to the output queue.

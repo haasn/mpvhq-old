@@ -39,6 +39,8 @@ void glClearTex(GL *gl, GLenum target, GLenum format, GLenum type,
 
 mp_image_t *glGetWindowScreenshot(GL *gl);
 
+const char* mp_sampler_type(GLenum texture_target);
+
 // print a multi line string with line numbers (e.g. for shader sources)
 // log, lev: module and log level, as in mp_msg()
 void mp_log_source(struct mp_log *log, int lev, const char *src);
@@ -121,14 +123,12 @@ void gl_set_debug_logger(GL *gl, struct mp_log *log);
 
 struct gl_shader_cache;
 
-struct gl_shader_cache *gl_sc_create(GL *gl, struct mp_log *log,
-                                     struct mpv_global *global);
+struct gl_shader_cache *gl_sc_create(GL *gl, struct mp_log *log);
 void gl_sc_destroy(struct gl_shader_cache *sc);
 void gl_sc_add(struct gl_shader_cache *sc, const char *text);
 void gl_sc_addf(struct gl_shader_cache *sc, const char *textf, ...);
 void gl_sc_hadd(struct gl_shader_cache *sc, const char *text);
 void gl_sc_haddf(struct gl_shader_cache *sc, const char *textf, ...);
-const char *gl_sc_loadfile(struct gl_shader_cache *sc, const char *path);
 void gl_sc_uniform_sampler(struct gl_shader_cache *sc, char *name, GLenum target,
                            int unit);
 void gl_sc_uniform_f(struct gl_shader_cache *sc, char *name, GLfloat f);

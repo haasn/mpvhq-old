@@ -173,6 +173,10 @@ main_dependencies = [
         'func': check_true,
         'deps_any': ['stdatomic', 'atomic-builtins', 'sync-builtins'],
     }, {
+        'name': 'c11-tls',
+        'desc': 'C11 TLS support',
+        'func': check_statement('stddef.h', 'static _Thread_local int x = 0'),
+    }, {
         'name': 'librt',
         'desc': 'linking with -lrt',
         'deps': [ 'pthreads' ],
@@ -356,18 +360,19 @@ iconv support use --disable-iconv.",
         'desc': 'LCMS2 support',
         'func': check_pkg_config('lcms2', '>= 2.6'),
     }, {
-        'name': 'vapoursynth-core',
-        'desc': 'VapourSynth filter bridge (core)',
-        'func': check_pkg_config('vapoursynth >= 24'),
-    }, {
         'name': '--vapoursynth',
         'desc': 'VapourSynth filter bridge (Python)',
-        'deps': ['vapoursynth-core'],
-        'func': check_pkg_config('vapoursynth-script >= 23'),
+        'func': check_pkg_config('vapoursynth',        '>= 24',
+                                 'vapoursynth-script', '>= 23'),
     }, {
         'name': '--vapoursynth-lazy',
         'desc': 'VapourSynth filter bridge (Lazy Lua)',
-        'deps': ['vapoursynth-core', 'lua'],
+        'deps': ['lua'],
+        'func': check_pkg_config('vapoursynth',        '>= 24'),
+    }, {
+        'name': 'vapoursynth-core',
+        'desc': 'VapourSynth filter bridge (core)',
+        'deps_any': ['vapoursynth', 'vapoursynth-lazy'],
         'func': check_true,
     }, {
         'name': '--libarchive',
@@ -446,6 +451,12 @@ FFmpeg/Libav libraries. You need at least {0}. Aborting.".format(libav_versions_
         'desc': 'libavtuil av_version_info()',
         'func': check_statement('libavutil/avutil.h',
                                 'const char *x = av_version_info()',
+                                use='libav'),
+    }, {
+        'name': 'av-new-pixdesc',
+        'desc': 'libavutil new pixdesc fields',
+        'func': check_statement('libavutil/pixdesc.h',
+                                'AVComponentDescriptor d; int x = d.depth',
                                 use='libav'),
     }
 ]
@@ -598,10 +609,9 @@ video_output_features = [
     } , {
         'name': '--egl-x11',
         'desc': 'OpenGL X11 EGL Backend',
-        'deps': [ 'x11' ],
+        'deps': [ 'x11', 'c11-tls' ],
         'groups': [ 'gl' ],
         'func': check_pkg_config('egl', 'gl'),
-        'default': 'disable',
     } , {
         'name': '--gl-wayland',
         'desc': 'OpenGL Wayland Backend',
@@ -641,6 +651,11 @@ video_output_features = [
         'name': '--vaapi-glx',
         'desc': 'VAAPI GLX',
         'deps': [ 'vaapi', 'gl-x11' ],
+        'func': check_true,
+    }, {
+        'name': '--vaapi-x-egl',
+        'desc': 'VAAPI EGL on X11',
+        'deps': [ 'vaapi', 'egl-x11' ],
         'func': check_true,
     }, {
         'name': '--caca',
@@ -688,6 +703,11 @@ video_output_features = [
         'desc': 'OpenGL video outputs',
         'deps_any': [ 'gl-cocoa', 'gl-x11', 'gl-win32', 'gl-wayland', 'rpi' ],
         'func': check_true
+    } , {
+        'name': 'egl',
+        'desc': 'EGL',
+        'deps_any': [ 'egl-x11', 'rpi' , 'gl-wayland' ],
+        'func': check_true,
     }
 ]
 
@@ -749,6 +769,11 @@ hwaccel_features = [
         'desc': 'libavcodec DXVA2 hwaccel',
         'deps': [ 'win32' ],
         'func': check_headers('libavcodec/dxva2.h', use='libav'),
+    }, {
+        'name': 'sse4-intrinsics',
+        'desc': 'GCC SSE4 intrinsics for GPU memcpy',
+        'deps_any': [ 'dxva2-hwaccel', 'vaapi-hwaccel' ],
+        'func': check_cc(fragment=load_fragment('sse.c')),
     }
 ]
 
@@ -852,7 +877,7 @@ def options(opt):
     group.add_option('--lua',
         type    = 'string',
         dest    = 'LUA_VER',
-        help    = "select Lua package which should be autodetected. Choices: 51 51deb 51fbsd 52 52deb 52fbsd luajit")
+        help    = "select Lua package which should be autodetected. Choices: 51 51deb 51fbsd 52 52deb 52arch 52fbsd luajit")
 
 @conf
 def is_optimization(ctx):

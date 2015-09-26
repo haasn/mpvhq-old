@@ -38,9 +38,9 @@
 #include "vo.h"
 #include "video/mp_image.h"
 #include "sub/osd.h"
-#include "gl_osd.h"
 
-#include "gl_rpi.h"
+#include "opengl/osd.h"
+#include "opengl/rpi.h"
 
 struct priv {
     DISPMANX_DISPLAY_HANDLE_T display;
@@ -258,7 +258,7 @@ static int update_display_size(struct vo *vo)
         MP_FATAL(vo, "EGL/GLES initialization for OSD renderer failed.\n");
         return -1;
     }
-    p->sc = gl_sc_create(p->egl.gl, vo->log, vo->global),
+    p->sc = gl_sc_create(p->egl.gl, vo->log),
     p->osd = mpgl_osd_init(p->egl.gl, vo->log, vo->osd);
     p->osd_change_counter = -1; // force initial overlay rendering
 

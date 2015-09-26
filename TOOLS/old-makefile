@@ -91,6 +91,7 @@ SOURCES-$(VAAPI)                += video/out/vo_vaapi.c \
                                    video/vaapi.c
 SOURCES-$(VAAPI_VPP)            += video/filter/vf_vavpp.c
 SOURCES-$(VAAPI_GLX)            += video/out/opengl/hwdec_vaglx.c
+SOURCES-$(VAAPI_X_EGL)          += video/out/opengl/hwdec_vaegl.c
 
 SOURCES-$(XV)                   += video/out/x11_common.c video/out/vo_xv.c
 SOURCES-$(WAYLAND)              += video/out/vo_wayland.c \
@@ -99,13 +100,9 @@ SOURCES-$(WAYLAND)              += video/out/vo_wayland.c \
                                    video/out/wayland/memfile.c
 
 SOURCES-$(LIBAVFILTER)          += video/filter/vf_lavfi.c \
-                                   video/filter/vf_delogo.c \
                                    video/filter/vf_gradfun.c \
-                                   video/filter/vf_hqdn3d.c \
-                                   video/filter/vf_noise.c \
                                    video/filter/vf_pullup.c \
                                    video/filter/vf_rotate.c \
-                                   video/filter/vf_unsharp.c \
                                    video/filter/vf_yadif.c \
                                    audio/filter/af_lavfi.c
 
@@ -199,6 +196,7 @@ SOURCES = audio/audio.c \
           player/client.c \
           player/configfiles.c \
           player/command.c \
+          player/external_files.c \
           player/loadfile.c \
           player/main.c \
           player/misc.c \
@@ -223,7 +221,6 @@ SOURCES = audio/audio.c \
           stream/stream_rar.c \
           sub/dec_sub.c \
           sub/draw_bmp.c \
-          sub/find_subfiles.c \
           sub/img_convert.c \
           sub/osd.c \
           sub/sd_lavc.c \
@@ -237,6 +234,7 @@ SOURCES = audio/audio.c \
           ta/ta_talloc.c \
           video/csputils.c \
           video/fmt-conversion.c \
+          video/gpu_memcpy.c \
           video/image_writer.c \
           video/img_format.c \
           video/mp_image.c \

@@ -28,7 +28,6 @@
 #include <stdarg.h>
 #include <assert.h>
 
-#include "stream/stream.h"
 #include "common/common.h"
 #include "utils.h"
 
@@ -477,7 +476,6 @@ void gl_set_debug_logger(GL *gl, struct mp_log *log)
 
 #define SC_ENTRIES 16
 #define SC_UNIFORM_ENTRIES 20
-#define SC_FILE_ENTRIES 10
 
 enum uniform_type {
     UT_invalid,
@@ -498,11 +496,6 @@ struct sc_uniform {
     } v;
 };
 
-struct sc_file {
-    char *path;
-    char *body;
-};
-
 struct sc_entry {
     GLuint gl_shader;
     // the following fields define the shader's contents
@@ -513,7 +506,6 @@ struct sc_entry {
 struct gl_shader_cache {
     GL *gl;
     struct mp_log *log;
-    struct mpv_global *global;
 
     // this is modified during use (gl_sc_add() etc.)
     char *text;
@@ -525,19 +517,14 @@ struct gl_shader_cache {
 
     struct sc_uniform uniforms[SC_UNIFORM_ENTRIES];
     int num_uniforms;
-
-    struct sc_file files[SC_FILE_ENTRIES];
-    int num_files;
 };
 
-struct gl_shader_cache *gl_sc_create(GL *gl, struct mp_log *log,
-                                     struct mpv_global *global)
+struct gl_shader_cache *gl_sc_create(GL *gl, struct mp_log *log)
 {
     struct gl_shader_cache *sc = talloc_ptrtype(NULL, sc);
     *sc = (struct gl_shader_cache){
         .gl = gl,
         .log = log,
-        .global = global,
         .text = talloc_strdup(sc, ""),
         .header_text = talloc_strdup(sc, ""),
     };
@@ -598,35 +585,6 @@ void gl_sc_haddf(struct gl_shader_cache *sc, const char *textf, ...)
     va_end(ap);
 }
 
-const char *gl_sc_loadfile(struct gl_shader_cache *sc, const char *path)
-{
-    if (!path || !path[0] || !sc->global)
-        return NULL;
-    for (int n = 0; n < sc->num_files; n++) {
-        if (strcmp(sc->files[n].path, path) == 0)
-            return sc->files[n].body;
-    }
-    // not found -> load it
-    if (sc->num_files == SC_FILE_ENTRIES) {
-        // empty cache when it overflows
-        for (int n = 0; n < sc->num_files; n++) {
-            talloc_free(sc->files[n].path);
-            talloc_free(sc->files[n].body);
-        }
-        sc->num_files = 0;
-    }
-    struct bstr s = stream_read_file(path, sc, sc->global, 100000); // 100 kB
-    if (s.len) {
-        struct sc_file *new = &sc->files[sc->num_files++];
-        *new = (struct sc_file) {
-            .path = talloc_strdup(sc, path),
-            .body = s.start
-        };
-        return new->body;
-    }
-    return NULL;
-}
-
 static struct sc_uniform *find_uniform(struct gl_shader_cache *sc,
                                        const char *name)
 {
@@ -641,19 +599,24 @@ static struct sc_uniform *find_uniform(struct gl_shader_cache *sc,
     return new;
 }
 
+const char* mp_sampler_type(GLenum texture_target)
+{
+    switch (texture_target) {
+    case GL_TEXTURE_1D:         return "sampler1D";
+    case GL_TEXTURE_2D:         return "sampler2D";
+    case GL_TEXTURE_RECTANGLE:  return "sampler2DRect";
+    case GL_TEXTURE_3D:         return "sampler3D";
+    default: abort();
+    }
+}
+
 void gl_sc_uniform_sampler(struct gl_shader_cache *sc, char *name, GLenum target,
                            int unit)
 {
     struct sc_uniform *u = find_uniform(sc, name);
     u->type = UT_i;
     u->size = 1;
-    switch (target) {
-    case GL_TEXTURE_1D: u->glsl_type = "sampler1D"; break;
-    case GL_TEXTURE_2D: u->glsl_type = "sampler2D"; break;
-    case GL_TEXTURE_RECTANGLE: u->glsl_type = "sampler2DRect"; break;
-    case GL_TEXTURE_3D: u->glsl_type = "sampler3D"; break;
-    default: abort();
-    }
+    u->glsl_type = mp_sampler_type(target);
     u->v.i[0] = unit;
 }
 
