@@ -20,6 +20,9 @@ Interface changes
 ::
 
  --- mpv 0.12.0 ---
+    - add --audio-fallback-to-null option
+    - replace vf_format outputlevels suboption with "video-output-levels" global
+      property/option; also remove "colormatrix-output-range" property
     - vo_opengl: remove sharpen3/sharpen5 scale filters, add sharpen sub-option
  --- mpv 0.11.0 ---
     - add "af-metadata" property

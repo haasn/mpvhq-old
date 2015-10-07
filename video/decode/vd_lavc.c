@@ -116,7 +116,6 @@ const struct m_sub_options vd_lavc_conf = {
 };
 
 const struct vd_lavc_hwdec mp_vd_lavc_vdpau;
-const struct vd_lavc_hwdec mp_vd_lavc_vda;
 const struct vd_lavc_hwdec mp_vd_lavc_videotoolbox;
 const struct vd_lavc_hwdec mp_vd_lavc_vaapi;
 const struct vd_lavc_hwdec mp_vd_lavc_vaapi_copy;
@@ -132,9 +131,6 @@ static const struct vd_lavc_hwdec *const hwdec_list[] = {
 #endif
 #if HAVE_VIDEOTOOLBOX_HWACCEL
     &mp_vd_lavc_videotoolbox,
-#endif
-#if HAVE_VDA_HWACCEL
-    &mp_vd_lavc_vda,
 #endif
 #if HAVE_VAAPI_HWACCEL
     &mp_vd_lavc_vaapi,
@@ -455,7 +451,6 @@ static void uninit_avctx(struct dec_video *vd)
             MP_ERR(vd, "Could not close codec.\n");
 
         av_freep(&avctx->extradata);
-        av_freep(&avctx->slice_offset);
     }
 
     if (ctx->hwdec && ctx->hwdec->uninit)
@@ -632,6 +627,7 @@ static void decode(struct dec_video *vd, struct demux_packet *packet,
     if (ctx->hwdec_failed || ret < 0) {
         if (ret < 0)
             MP_WARN(vd, "Error while decoding frame!\n");
+        ctx->hwdec_failed = true;
         return;
     }
 
@@ -692,13 +688,6 @@ static int control(struct dec_video *vd, int cmd, void *arg)
     switch (cmd) {
     case VDCTRL_RESET:
         avcodec_flush_buffers(avctx);
-        return CONTROL_TRUE;
-    case VDCTRL_QUERY_UNSEEN_FRAMES:;
-        int delay = avctx->has_b_frames;
-        assert(delay >= 0);
-        if (avctx->active_thread_type & FF_THREAD_FRAME)
-            delay += avctx->thread_count - 1;
-        *(int *)arg = delay;
         return CONTROL_TRUE;
     case VDCTRL_GET_HWDEC: {
         int hwdec = ctx->hwdec ? ctx->hwdec->type : 0;

@@ -458,7 +458,13 @@ FFmpeg/Libav libraries. You need at least {0}. Aborting.".format(libav_versions_
         'func': check_statement('libavutil/pixdesc.h',
                                 'AVComponentDescriptor d; int x = d.depth',
                                 use='libav'),
-    }
+    }, {
+        'name': 'av-avpacket-int64-duration',
+        'desc': 'libavcodec 64 bit AVPacket.duration',
+        'func': check_statement('libavcodec/avcodec.h',
+                                'int x[(int)sizeof(((AVPacket){0}).duration) - 7]',
+                                use='libav'),
+    },
 ]
 
 audio_output_features = [
@@ -609,7 +615,7 @@ video_output_features = [
     } , {
         'name': '--egl-x11',
         'desc': 'OpenGL X11 EGL Backend',
-        'deps': [ 'x11', 'c11-tls' ],
+        'deps': [ 'x11' ],
         'groups': [ 'gl' ],
         'func': check_pkg_config('egl', 'gl'),
     } , {
@@ -639,9 +645,19 @@ video_output_features = [
     }, {
         'name': '--vaapi',
         'desc': 'VAAPI acceleration',
-        'deps': [ 'x11', 'libdl' ],
-        'func': check_pkg_config(
-            'libva', '>= 0.34.0', 'libva-x11', '>= 0.34.0'),
+        'deps': [ 'libdl' ],
+        'deps_any': [ 'x11', 'wayland' ],
+        'func': check_pkg_config('libva', '>= 0.34.0'),
+    }, {
+        'name': '--vaapi-x11',
+        'desc': 'VAAPI (X11 support)',
+        'deps': [ 'vaapi', 'x11' ],
+        'func': check_pkg_config('libva-x11', '>= 0.34.0'),
+    }, {
+        'name': '--vaapi-wayland',
+        'desc': 'VAAPI (Wayland support)',
+        'deps': [ 'vaapi', 'wayland' ],
+        'func': check_pkg_config('libva-wayland', '>= 0.34.0'),
     }, {
         'name': '--vaapi-vpp',
         'desc': 'VAAPI VPP',
@@ -650,12 +666,18 @@ video_output_features = [
     }, {
         'name': '--vaapi-glx',
         'desc': 'VAAPI GLX',
-        'deps': [ 'vaapi', 'gl-x11' ],
+        'deps': [ 'vaapi-x11', 'gl-x11' ],
         'func': check_true,
     }, {
         'name': '--vaapi-x-egl',
         'desc': 'VAAPI EGL on X11',
-        'deps': [ 'vaapi', 'egl-x11' ],
+        'deps': [ 'vaapi-x11', 'egl-x11' ],
+        'func': check_true,
+    }, {
+        'name': 'vaapi-egl',
+        'desc': 'VAAPI EGL',
+        'deps': [ 'c11-tls' ], # indirectly
+        'deps_any': [ 'vaapi-x-egl', 'vaapi-wayland' ],
         'func': check_true,
     }, {
         'name': '--caca',
@@ -703,11 +725,6 @@ video_output_features = [
         'desc': 'OpenGL video outputs',
         'deps_any': [ 'gl-cocoa', 'gl-x11', 'gl-win32', 'gl-wayland', 'rpi' ],
         'func': check_true
-    } , {
-        'name': 'egl',
-        'desc': 'EGL',
-        'deps_any': [ 'egl-x11', 'rpi' , 'gl-wayland' ],
-        'func': check_true,
     }
 ]
 
@@ -717,27 +734,6 @@ hwaccel_features = [
         'desc': 'libavcodec VAAPI hwaccel',
         'deps': [ 'vaapi' ],
         'func': check_headers('libavcodec/vaapi.h', use='libav'),
-    } , {
-        'name': '--vda-hwaccel',
-        'desc': 'libavcodec VDA hwaccel',
-        'func': compose_checks(
-            check_headers('VideoDecodeAcceleration/VDADecoder.h'),
-            check_statement('libavcodec/vda.h',
-                            'av_vda_alloc_context()',
-                            framework='IOSurface',
-                            use='libav')),
-    } , {
-        'name': 'vda-default-init2',
-        'desc': 'libavcodec VDA hwaccel (configurable AVVDAContext)',
-        'deps': [ 'vda-hwaccel' ],
-        'func': check_statement('libavcodec/vda.h',
-                                'av_vda_default_init2(NULL, NULL)',
-                                use='libav'),
-    }, {
-        'name': '--vda-gl',
-        'desc': 'VDA with OpenGL',
-        'deps': [ 'gl-cocoa', 'vda-hwaccel' ],
-        'func': check_true
     }, {
         'name': '--videotoolbox-hwaccel',
         'desc': 'libavcodec videotoolbox hwaccel',
@@ -753,11 +749,6 @@ hwaccel_features = [
         'deps': [ 'gl-cocoa', 'videotoolbox-hwaccel' ],
         'func': check_true
     } , {
-        'name': 'videotoolbox-vda-gl',
-        'desc': 'Videotoolbox or VDA with OpenGL',
-        'deps_any': [ 'videotoolbox-gl', 'vda-gl' ],
-        'func': check_true
-    }, {
         'name': '--vdpau-hwaccel',
         'desc': 'libavcodec VDPAU hwaccel',
         'deps': [ 'vdpau' ],

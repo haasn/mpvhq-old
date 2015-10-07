@@ -22,26 +22,86 @@
 #include <assert.h>
 
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 
 #include <va/va_drmcommon.h>
 
-#include "video/out/x11_common.h"
 #include "hwdec.h"
 #include "video/vaapi.h"
 #include "video/img_fourcc.h"
+#include "video/mp_image_pool.h"
 #include "common.h"
+
+#ifndef GL_OES_EGL_image
+typedef void* GLeglImageOES;
+#endif
+#ifndef EGL_KHR_image
+typedef void *EGLImageKHR;
+#endif
+
+#ifndef EGL_LINUX_DRM_FOURCC_EXT
+#define EGL_LINUX_DRM_FOURCC_EXT          0x3271
+#define EGL_DMA_BUF_PLANE0_FD_EXT         0x3272
+#define EGL_DMA_BUF_PLANE0_OFFSET_EXT     0x3273
+#define EGL_DMA_BUF_PLANE0_PITCH_EXT      0x3274
+#endif
+
+#if HAVE_VAAPI_X11
+#include <va/va_x11.h>
+
+static VADisplay *create_x11_va_display(GL *gl)
+{
+    Display *x11 = gl->MPGetNativeDisplay("x11");
+    return x11 ? vaGetDisplay(x11) : NULL;
+}
+#endif
+
+#if HAVE_VAAPI_WAYLAND
+#include <va/va_wayland.h>
+
+static VADisplay *create_wayland_va_display(GL *gl)
+{
+    struct wl_display *wl = gl->MPGetNativeDisplay("wl");
+    return wl ? vaGetDisplayWl(wl) : NULL;
+}
+#endif
+
+static VADisplay *create_native_va_display(GL *gl)
+{
+    if (!gl->MPGetNativeDisplay)
+        return NULL;
+    VADisplay *display = NULL;
+#if HAVE_VAAPI_X11
+    display = create_x11_va_display(gl);
+    if (display)
+        return display;
+#endif
+#if HAVE_VAAPI_WAYLAND
+    display = create_wayland_va_display(gl);
+    if (display)
+        return display;
+#endif
+    return display;
+}
 
 struct priv {
     struct mp_log *log;
     struct mp_vaapi_ctx *ctx;
     VADisplay *display;
-    Display *xdisplay;
     GLuint gl_textures[4];
     EGLImageKHR images[4];
     VAImage current_image;
     bool buffer_acquired;
     struct mp_image *current_ref;
+
+    EGLImageKHR (EGLAPIENTRY *CreateImageKHR)(EGLDisplay, EGLContext,
+                                              EGLenum, EGLClientBuffer,
+                                              const EGLint *);
+    EGLBoolean (EGLAPIENTRY *DestroyImageKHR)(EGLDisplay, EGLImageKHR);
+    void (EGLAPIENTRY *EGLImageTargetTexture2DOES)(GLenum, GLeglImageOES);
 };
+
+static bool test_format(struct gl_hwdec *hw);
 
 static void unref_image(struct gl_hwdec *hw)
 {
@@ -50,7 +110,7 @@ static void unref_image(struct gl_hwdec *hw)
 
     for (int n = 0; n < 4; n++) {
         if (p->images[n])
-            hw->gl->DestroyImageKHR(eglGetCurrentDisplay(), p->images[n]);
+            p->DestroyImageKHR(eglGetCurrentDisplay(), p->images[n]);
         p->images[n] = 0;
     }
 
@@ -90,30 +150,62 @@ static void destroy(struct gl_hwdec *hw)
     va_destroy(p->ctx);
 }
 
+// Create an empty dummy VPP. This works around a weird bug that affects the
+// VA surface format, as it is reported by vaDeriveImage(). Before a VPP
+// context or a decoder context is created, the surface format will be reported
+// as YV12. Surfaces created after context creation will report NV12 (even
+// though surface creation does not take a context as argument!). Existing
+// surfaces will change their format from YV12 to NV12 as soon as the decoder
+// renders to them! Because we want know the surface format in advance (to
+// simplify our renderer configuration logic), we hope that this hack gives
+// us reasonable behavior.
+// See: https://bugs.freedesktop.org/show_bug.cgi?id=79848
+static void insane_hack(struct gl_hwdec *hw)
+{
+    struct priv *p = hw->priv;
+    VAConfigID config;
+    if (vaCreateConfig(p->display, VAProfileNone, VAEntrypointVideoProc,
+                       NULL, 0, &config) == VA_STATUS_SUCCESS)
+    {
+        // We want to keep this until the VADisplay is destroyed. It will
+        // implicitly free the context.
+        VAContextID context;
+        vaCreateContext(p->display, config, 0, 0, 0, NULL, 0, &context);
+    }
+}
+
 static int create(struct gl_hwdec *hw)
 {
     GL *gl = hw->gl;
+
+    struct priv *p = talloc_zero(hw, struct priv);
+    hw->priv = p;
+    p->current_image.buf = p->current_image.image_id = VA_INVALID_ID;
+    p->log = hw->log;
 
     if (hw->hwctx)
         return -1;
     if (!eglGetCurrentDisplay())
         return -1;
 
-    Display *x11disp =
-        hw->gl->MPGetNativeDisplay ? hw->gl->MPGetNativeDisplay("x11") : NULL;
-    if (!x11disp)
-        return -1;
-    if (!gl->CreateImageKHR || !gl->EGLImageTargetTexture2DOES ||
-        !strstr(gl->extensions, "EXT_image_dma_buf_import") ||
+    if (!strstr(gl->extensions, "EXT_image_dma_buf_import") ||
+        !strstr(gl->extensions, "EGL_KHR_image_base") ||
+        !strstr(gl->extensions, "GL_OES_EGL_image") ||
         !(gl->mpgl_caps & MPGL_CAP_TEX_RG))
         return -1;
 
-    struct priv *p = talloc_zero(hw, struct priv);
-    hw->priv = p;
-    p->current_image.buf = p->current_image.image_id = VA_INVALID_ID;
-    p->log = hw->log;
-    p->xdisplay = x11disp;
-    p->display = vaGetDisplay(x11disp);
+    // EGL_KHR_image_base
+    p->CreateImageKHR = (void *)eglGetProcAddress("eglCreateImageKHR");
+    p->DestroyImageKHR = (void *)eglGetProcAddress("eglDestroyImageKHR");
+    // GL_OES_EGL_image
+    p->EGLImageTargetTexture2DOES =
+        (void *)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+
+    if (!p->CreateImageKHR || !p->DestroyImageKHR ||
+        !p->EGLImageTargetTexture2DOES)
+        return -1;
+
+    p->display = create_native_va_display(gl);
     if (!p->display)
         return -1;
 
@@ -130,8 +222,13 @@ static int create(struct gl_hwdec *hw)
 
     MP_VERBOSE(p, "using VAAPI EGL interop\n");
 
+    insane_hack(hw);
+    if (!test_format(hw)) {
+        destroy(hw);
+        return -1;
+    }
+
     hw->hwctx = &p->ctx->hwctx;
-    hw->converted_imgfmt = IMGFMT_NV12;
     return 0;
 }
 
@@ -185,9 +282,21 @@ static int map_image(struct gl_hwdec *hw, struct mp_image *hw_image,
         goto err;
 
     int mpfmt = va_fourcc_to_imgfmt(va_image->format.fourcc);
-    if (mpfmt != IMGFMT_NV12) {
+    if (mpfmt != IMGFMT_NV12 && mpfmt != IMGFMT_420P) {
         MP_FATAL(p, "unsupported VA image format %s\n",
                  VA_STR_FOURCC(va_image->format.fourcc));
+        goto err;
+    }
+
+    if (!hw->converted_imgfmt) {
+        MP_VERBOSE(p, "format: %s %s\n", VA_STR_FOURCC(va_image->format.fourcc),
+                   mp_imgfmt_to_name(mpfmt));
+        hw->converted_imgfmt = mpfmt;
+    }
+
+    if (hw->converted_imgfmt != mpfmt) {
+        MP_FATAL(p, "mid-stream hwdec format change (%s -> %s) not supported\n",
+                 mp_imgfmt_to_name(hw->converted_imgfmt), mp_imgfmt_to_name(mpfmt));
         goto err;
     }
 
@@ -218,13 +327,13 @@ static int map_image(struct gl_hwdec *hw, struct mp_image *hw_image,
         ADD_ATTRIB(EGL_DMA_BUF_PLANE0_OFFSET_EXT, va_image->offsets[n]);
         ADD_ATTRIB(EGL_DMA_BUF_PLANE0_PITCH_EXT, va_image->pitches[n]);
 
-        p->images[n] = hw->gl->CreateImageKHR(eglGetCurrentDisplay(),
+        p->images[n] = p->CreateImageKHR(eglGetCurrentDisplay(),
             EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
         if (!p->images[n])
             goto err;
 
         gl->BindTexture(GL_TEXTURE_2D, p->gl_textures[n]);
-        gl->EGLImageTargetTexture2DOES(GL_TEXTURE_2D, p->images[n]);
+        p->EGLImageTargetTexture2DOES(GL_TEXTURE_2D, p->images[n]);
 
         out_textures[n] = p->gl_textures[n];
     }
@@ -241,6 +350,28 @@ err:
     MP_FATAL(p, "mapping VAAPI EGL image failed\n");
     unref_image(hw);
     return -1;
+}
+
+static bool test_format(struct gl_hwdec *hw)
+{
+    struct priv *p = hw->priv;
+    bool ok = false;
+
+    struct mp_image_pool *alloc = mp_image_pool_new(1);
+    va_pool_set_allocator(alloc, p->ctx, VA_RT_FORMAT_YUV420);
+    struct mp_image *surface = mp_image_pool_get(alloc, IMGFMT_VAAPI, 64, 64);
+    if (surface) {
+        struct mp_image_params params = surface->params;
+        if (reinit(hw, &params) >= 0) {
+            GLuint textures[4];
+            ok = map_image(hw, surface, textures) >= 0;
+        }
+        unref_image(hw);
+    }
+    talloc_free(surface);
+    talloc_free(alloc);
+
+    return ok;
 }
 
 const struct gl_hwdec_driver gl_hwdec_vaegl = {

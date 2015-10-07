@@ -260,11 +260,15 @@ void reinit_audio_chain(struct MPContext *mpctx)
     }
 
     if (!mpctx->ao) {
+        bool spdif_fallback = af_fmt_is_spdif(afs->output.format) &&
+                              mpctx->d_audio->spdif_passthrough;
+        bool ao_null_fallback = opts->ao_null_fallback && !spdif_fallback;
+
         mp_chmap_remove_useless_channels(&afs->output.channels,
                                          &opts->audio_output_channels);
         mp_audio_set_channels(&afs->output, &afs->output.channels);
 
-        mpctx->ao = ao_init_best(mpctx->global, mpctx->input,
+        mpctx->ao = ao_init_best(mpctx->global, ao_null_fallback, mpctx->input,
                                  mpctx->encode_lavc_ctx, afs->output.rate,
                                  afs->output.format, afs->output.channels);
 
@@ -283,10 +287,9 @@ void reinit_audio_chain(struct MPContext *mpctx)
 
         if (!mpctx->ao) {
             // If spdif was used, try to fallback to PCM.
-            if (af_fmt_is_spdif(afs->output.format) &&
-                mpctx->d_audio->spdif_passthrough)
-            {
+            if (spdif_fallback) {
                 mpctx->d_audio->spdif_passthrough = false;
+                mpctx->d_audio->spdif_failed = true;
                 if (!audio_init_best_codec(mpctx->d_audio))
                     goto init_error;
                 reset_audio_state(mpctx);
@@ -471,8 +474,18 @@ void fill_audio_out_buffers(struct MPContext *mpctx, double endpts)
     if (mpctx->ao && ao_query_and_reset_events(mpctx->ao, AO_EVENT_RELOAD)) {
         ao_reset(mpctx->ao);
         uninit_audio_out(mpctx);
-        if (d_audio)
+        if (d_audio) {
+            if (mpctx->d_audio->spdif_failed) {
+                mpctx->d_audio->spdif_failed = false;
+                mpctx->d_audio->spdif_passthrough = true;
+                if (!audio_init_best_codec(mpctx->d_audio)) {
+                    MP_ERR(mpctx, "Error reinitializing audio.\n");
+                    error_on_track(mpctx, mpctx->current_track[0][STREAM_AUDIO]);
+                    return;
+                }
+            }
             mpctx->audio_status = STATUS_SYNCING;
+        }
     }
 
     if (!d_audio)

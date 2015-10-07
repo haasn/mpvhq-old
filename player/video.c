@@ -787,6 +787,7 @@ static void init_vo(struct MPContext *mpctx)
         video_set_colors(d_video, "saturation", opts->gamma_saturation);
     if (opts->gamma_hue != 1000)
         video_set_colors(d_video, "hue", opts->gamma_hue);
+    video_set_colors(d_video, "output-levels", opts->video_output_levels);
 
     mp_notify(mpctx, MPV_EVENT_VIDEO_RECONFIG, NULL);
 }
@@ -1131,7 +1132,7 @@ void write_video(struct MPContext *mpctx, double endpts)
                 info->name, p.w, p.h, extra, vo_format_name(p.imgfmt));
         MP_VERBOSE(mpctx, "VO: Description: %s\n", info->description);
 
-        int vo_r = vo_reconfig(vo, &p, 0);
+        int vo_r = vo_reconfig(vo, &p);
         if (vo_r < 0) {
             mpctx->error_playing = MPV_ERROR_VO_INIT_FAILED;
             goto error;

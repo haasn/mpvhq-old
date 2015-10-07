@@ -84,7 +84,6 @@ const struct m_opt_choice_alternatives mp_hwdec_names[] = {
     {"no",          HWDEC_NONE},
     {"auto",        HWDEC_AUTO},
     {"vdpau",       HWDEC_VDPAU},
-    {"vda",         HWDEC_VDA},
     {"videotoolbox",HWDEC_VIDEOTOOLBOX},
     {"vaapi",       HWDEC_VAAPI},
     {"vaapi-copy",  HWDEC_VAAPI_COPY},
@@ -384,6 +383,7 @@ const m_option_t mp_opts[] = {
     OPT_SETTINGSLIST("ao-defaults", ao_defs, 0, &ao_obj_list),
     OPT_STRING("audio-device", audio_device, 0),
     OPT_STRING("audio-client-name", audio_client_name, 0),
+    OPT_FLAG("audio-fallback-to-null", ao_null_fallback, 0),
     OPT_CHOICE("force-window", force_vo, 0,
                ({"no", 0}, {"yes", 1}, {"immediate", 2})),
     OPT_FLAG("ontop", vo.ontop, M_OPT_FIXED),
@@ -465,6 +465,8 @@ const m_option_t mp_opts[] = {
     OPT_INTRANGE("contrast", gamma_contrast, 0, -100, 100),
     OPT_INTRANGE("hue", gamma_hue, 0, -100, 100),
     OPT_INTRANGE("gamma", gamma_gamma, 0, -100, 100),
+    OPT_CHOICE_C("video-output-levels", video_output_levels, 0,
+                 mp_csp_levels_names),
     OPT_FLAG("keepaspect", vo.keepaspect, 0),
     OPT_FLAG("keepaspect-window", vo.keepaspect_window, 0),
 
@@ -520,8 +522,6 @@ const m_option_t mp_opts[] = {
 
     // a-v sync stuff:
     OPT_FLAG("correct-pts", correct_pts, 0),
-    OPT_CHOICE("pts-association-mode", user_pts_assoc_mode, 0,
-               ({"auto", 0}, {"decoder", 1}, {"sort", 2})),
     OPT_FLAG("initial-audio-sync", initial_audio_sync, 0),
     OPT_CHOICE("video-sync", video_sync, 0,
                ({"audio", VS_DEFAULT},
@@ -753,7 +753,6 @@ const struct MPOpts mp_default_opts = {
     .edition_id = -1,
     .default_max_pts_correction = -1,
     .correct_pts = 1,
-    .user_pts_assoc_mode = 1,
     .initial_audio_sync = 1,
     .frame_dropping = 1,
     .term_osd = 2,

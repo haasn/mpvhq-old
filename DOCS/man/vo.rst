@@ -20,13 +20,10 @@ normal driver parameters.
 
     See ``--vo=help`` for a list of compiled-in video output drivers.
 
-    The recommended output drivers are ``--vo=opengl-hq`` and ``--vo=opengl-vhq``.
-    All other drivers are just for compatibility or special purposes.
-
-.. admonition:: Example
-
-    ``--vo=opengl,xv,``
-        Try the ``opengl`` driver, then the ``xv`` driver, then others.
+    The recommended output driver is ``--vo=opengl-hq``. All other drivers are
+    for compatibility or special purposes. By default, ``--vo=opengl`` is used,
+    but if that appears not to work, it fallback to other drivers (in the same
+    order as listed by ``--vo=help``).
 
 Available video output drivers are:
 
@@ -74,6 +71,12 @@ Available video output drivers are:
         Increasing this will use more memory, but might help with the X server
         not responding quickly enough if video FPS is close to or higher than
         the display refresh rate.
+
+``x11`` (X11 only)
+    Shared memory video output driver without hardware acceleration that works
+    whenever X11 is present.
+
+    .. note:: This is a fallback only, and should not be normally used.
 
 ``vdpau`` (X11 only)
     Uses the VDPAU interface to display and optionally also decode video.

@@ -2240,6 +2240,10 @@ static void check_gl_features(struct gl_video *p)
         p->use_lut_3d = false;
         MP_WARN(p, "Disabling color management (GLSL version too old).\n");
     }
+    if (!have_mix && p->opts.deband) {
+        p->opts.deband = 0;
+        MP_WARN(p, "Disabling debanding (GLSL version too old).\n");
+    }
 }
 
 static void init_gl(struct gl_video *p)
@@ -2627,7 +2631,6 @@ struct mp_csp_equalizer *gl_video_eq_ptr(struct gl_video *p)
 // Call when the mp_csp_equalizer returned by gl_video_eq_ptr() was changed.
 void gl_video_eq_update(struct gl_video *p)
 {
-    gl_video_reset_surfaces(p);
 }
 
 static int validate_scaler_opt(struct mp_log *log, const m_option_t *opt,

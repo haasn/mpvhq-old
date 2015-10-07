@@ -82,6 +82,7 @@ typedef struct MPOpts {
     struct m_obj_settings *audio_driver_list, *ao_defs;
     char *audio_device;
     char *audio_client_name;
+    int ao_null_fallback;
     int force_vo;
     int softvol;
     float mixer_init_volume;
@@ -104,6 +105,7 @@ typedef struct MPOpts {
     int gamma_contrast;
     int gamma_saturation;
     int gamma_hue;
+    int video_output_levels;
 
     int stop_screensaver;
     int cursor_autohide_delay;
@@ -143,7 +145,6 @@ typedef struct MPOpts {
     int chapterrange[2];
     int edition_id;
     int correct_pts;
-    int user_pts_assoc_mode;
     int initial_audio_sync;
     int video_sync;
     double sync_max_video_change;

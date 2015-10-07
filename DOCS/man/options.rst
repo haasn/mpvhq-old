@@ -567,12 +567,11 @@ Video
     :no:        always use software decoding (default)
     :auto:      see below
     :vdpau:     requires ``--vo=vdpau`` or ``--vo=opengl`` (Linux only)
-    :vaapi:     requires ``--vo=opengl`` or ``--vo=vaapi`` (Linux with Intel GPUs only)
+    :vaapi:     requires ``--vo=opengl`` or ``--vo=vaapi`` (Linux only)
     :vaapi-copy: copies video back into system RAM (Linux with Intel GPUs only)
-    :vda:       requires ``--vo=opengl`` (OS X only)
-    :videotoolbox: requires ``--vo=opengl`` (newer OS X only)
+    :videotoolbox: requires ``--vo=opengl`` (OS X 10.8 and up only)
     :dxva2-copy: copies video back to system RAM (Windows only)
-    :rpi:      requires ``--vo=rpi`` (Raspberry Pi only - default if available)
+    :rpi:       requires ``--vo=rpi`` (Raspberry Pi only - default if available)
 
     ``auto`` tries to automatically enable hardware decoding using the first
     available method. This still depends what VO you are using. For example,
@@ -580,6 +579,12 @@ Video
     never be enabled. Also note that if the first found method doesn't actually
     work, it will always fall back to software decoding, instead of trying the
     next method (might matter on some Linux systems).
+
+    The ``vaapi`` mode, if used with ``--vo=opengl``, requires Mesa 11 and most
+    likely works with Intel GPUs only. It also requires the opengl EGL backend
+    (automatically used if available). You can also try the old GLX backend by
+    forcing it with ``--vo=opengl:backend=x11``, but the vaapi/GLX interop is
+    said to be slower than ``vaapi-copy``.
 
     The ``vaapi-copy`` mode allows you to use vaapi with any VO. Because
     this copies the decoded video back to system RAM, it's likely less efficient
@@ -784,6 +789,26 @@ Video
     For audio-only playback, any value greater than 0 will quit playback
     immediately after initialization. The value 0 works as with video.
 
+``--video-output-levels=<outputlevels>``
+    RGB color levels used with YUV to RGB conversion. Normally, output devices
+    such as PC monitors use full range color levels. However, some TVs and
+    video monitors expect studio RGB levels. Providing full range output to a
+    device expecting studio level input results in crushed blacks and whites,
+    the reverse in dim gray blacks and dim whites.
+
+    Not all VOs support this option. Some will silently ignore it.
+
+    Available color ranges are:
+
+    :auto:      automatic selection (equals to full range) (default)
+    :limited:   limited range (16-235 per component), studio levels
+    :full:      full range (0-255 per component), PC levels
+
+    .. note::
+
+        It is advisable to use your graphics driver's color range option
+        instead, if available.
+
 ``--hwdec-codecs=<codec1,codec2,...|all>``
     Allow hardware decoding for a given list of codecs only. The special value
     ``all`` always allows all codecs.
@@ -900,6 +925,14 @@ Audio
     selection of ``--audio-device`` (but not the device selection).
 
     Currently not implemented for most AOs.
+
+``--audio-fallback-to-null=<yes|no>``
+    If no audio device can be opened, behave as if ``--ao=null`` was given. This
+    is useful in combination with ``--audio-device``: instead of causing an
+    error if the selected device does not exist, the client API user (or a
+    Lua script) could let playback continue normally, and check the
+    ``current-ao`` and ``audio-device-list`` properties to make high-level
+    decisions about how to continue.
 
 ``--ao=<driver1[:suboption1[=value]:...],driver2,...[,]>``
     Specify a priority list of audio output drivers to be used. For
@@ -3510,20 +3543,6 @@ Miscellaneous
     idle|belownormal|normal|abovenormal|high|realtime
 
     .. warning:: Using realtime priority can cause system lockup.
-
-``--pts-association-mode=<decode|sort|auto>``
-    Select the method used to determine which container packet timestamp
-    corresponds to a particular output frame from the video decoder. Normally
-    you should not need to change this option.
-
-    :decoder: Use decoder reordering functionality. Unlike in classic MPlayer
-              and mplayer2, this includes a DTS fallback. (Default.)
-    :sort:    Maintain a buffer of unused pts values and use the lowest value
-              for the frame.
-    :auto:    Try to pick a working mode from the ones above automatically.
-
-    You can also try to use ``--no-correct-pts`` for files with completely
-    broken timestamps.
 
 ``--force-media-title=<string>``
     Force the contents of the ``media-title`` property to this value. Useful
