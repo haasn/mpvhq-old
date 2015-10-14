@@ -190,9 +190,7 @@ const struct hwdec_profile_entry *hwdec_find_profile(
     }
     for (int n = 0; table[n].av_codec; n++) {
         if (table[n].av_codec == codec) {
-            if (table[n].ff_profile == FF_PROFILE_UNKNOWN ||
-                profile == FF_PROFILE_UNKNOWN ||
-                table[n].ff_profile == profile ||
+            if (table[n].ff_profile == profile ||
                 !lavc_param->check_hw_profile)
                 return &table[n];
         }
@@ -520,6 +518,9 @@ static enum AVPixelFormat get_format_hwdec(struct AVCodecContext *avctx,
     MP_VERBOSE(vd, "\n");
 
     assert(ctx->hwdec);
+
+    ctx->hwdec_request_reinit |= ctx->hwdec_failed;
+    ctx->hwdec_failed = false;
 
     if (ctx->hwdec->image_format) {
         for (int i = 0; fmt[i] != AV_PIX_FMT_NONE; i++) {

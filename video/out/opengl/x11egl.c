@@ -160,11 +160,17 @@ static int mpegl_init(struct MPGLContext *ctx, int flags)
     ctx->native_display_type = "x11";
     ctx->native_display = vo->x11->display;
 
-    return true;
+    if (vo->probing) {
+        const char *vendor = ctx->gl->GetString(GL_VENDOR);
+        if (vendor && strstr(vendor, "NVIDIA Corporation"))
+            goto uninit;
+    }
+
+    return 0;
 
 uninit:
     mpegl_uninit(ctx);
-    return false;
+    return -1;
 }
 
 static int mpegl_reconfig(struct MPGLContext *ctx)

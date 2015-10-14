@@ -456,16 +456,13 @@ Program Behavior
 
     If the script can't do anything with an URL, it will do nothing.
 
-    (Note: this is the replacement for the now removed libquvi support.)
-
 ``--ytdl-format=<best|worst|mp4|webm|...>``
     Video format/quality that is directly passed to youtube-dl. The possible
     values are specific to the website and the video, for a given url the
     available formats can be found with the command
     ``youtube-dl --list-formats URL``. See youtube-dl's documentation for
-    available aliases. To use experimental DASH support for youtube, use
-    ``bestvideo+bestaudio``.
-    (Default: ``best``)
+    available aliases.
+    (Default: youtube-dl's default, currently ``bestvideo+bestaudio/best``)
 
 ``--ytdl-raw-options=<key>=<value>[,<key>=<value>[,...]]``
     Pass arbitrary options to youtube-dl. Parameter and argument should be
@@ -2483,20 +2480,23 @@ OSD
 ``--osd-duration=<time>``
     Set the duration of the OSD messages in ms (default: 1000).
 
-``--osd-font=<pattern>``, ``--sub-text-font=<pattern>``
+``--osd-font=<name>``, ``--sub-text-font=<name>``
     Specify font to use for OSD and for subtitles that do not themselves
     specify a particular font. The default is ``sans-serif``.
 
     .. admonition:: Examples
 
         - ``--osd-font='Bitstream Vera Sans'``
-        - ``--osd-font='Bitstream Vera Sans:style=Bold'`` (fontconfig pattern)
+        - ``--osd-font='MS Comic Sans'``
 
     .. note::
 
         The ``--sub-text-font`` option (and most other ``--sub-text-``
         options) are ignored when ASS-subtitles are rendered, unless the
         ``--no-sub-ass`` option is specified.
+
+        This used to support fontconfig patterns. Starting with libass 0.13.0,
+        this stopped working.
 
 ``--osd-font-size=<size>``, ``--sub-text-font-size=<size>``
     Specify the OSD/sub font size. The unit is the size in scaled pixels at a
