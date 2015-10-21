@@ -960,10 +960,14 @@ static void handle_display_sync_frame(struct MPContext *mpctx,
 
     // If we are too far ahead/behind, attempt to drop/repeat frames. In
     // particular, don't attempt to change speed for them.
-    if (drop) {
+    if (drop)
         drop_repeat = -av_diff / vsync; // round towards 0
-        av_diff -= drop_repeat * vsync;
-    }
+
+    // Tolerate at least 1 video frame desync.
+    if (abs(drop_repeat) <= 1)
+        drop_repeat = 0;
+
+    av_diff += drop_repeat * vsync;
 
     if (resample) {
         double audio_factor = 1.0;
@@ -986,7 +990,7 @@ static void handle_display_sync_frame(struct MPContext *mpctx,
             if (av_diff * -mpctx->display_sync_drift_dir >= 0)
                 new = 0;
             if (fabs(av_diff) > max_drift)
-                new = copysign(1, av_diff);
+                new = av_diff >= 0 ? 1 : -1;
             if (mpctx->display_sync_drift_dir != new) {
                 MP_VERBOSE(mpctx, "Change display sync audio drift: %d\n", new);
                 mpctx->display_sync_drift_dir = new;

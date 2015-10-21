@@ -625,10 +625,14 @@ static void decode(struct dec_video *vd, struct demux_packet *packet,
     ret = avcodec_decode_video2(avctx, ctx->pic, &got_picture, &pkt);
     hwdec_unlock(ctx);
 
-    if (ctx->hwdec_failed || ret < 0) {
-        if (ret < 0)
-            MP_WARN(vd, "Error while decoding frame!\n");
+    if (ret < 0) {
+        MP_WARN(vd, "Error while decoding frame!\n");
         ctx->hwdec_failed = true;
+        return;
+    }
+
+    if (ctx->hwdec && ctx->hwdec_failed) {
+        av_frame_unref(ctx->pic);
         return;
     }
 
