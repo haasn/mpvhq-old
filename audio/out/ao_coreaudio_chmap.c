@@ -164,7 +164,7 @@ static bool ca_layout_to_mp_chmap(struct ao *ao, AudioChannelLayout *layout,
     }
 
     talloc_free(talloc_ctx);
-    return chmap->num > 0;
+    return mp_chmap_is_valid(chmap) && !mp_chmap_is_unknown(chmap);
 coreaudio_error:
     MP_VERBOSE(ao, "converted input channel layout (failed):\n");
     ca_log_layout(ao, MSGL_V, layout);
@@ -264,4 +264,29 @@ bool ca_init_chmap(struct ao *ao, AudioDeviceID device)
 coreaudio_error:
     talloc_free(ta_ctx);
     return false;
+}
+
+void ca_get_active_chmap(struct ao *ao, AudioDeviceID device, int channel_count,
+                         struct mp_chmap *out_map)
+{
+    void *ta_ctx = talloc_new(NULL);
+
+    // Apparently, we have to guess by looking back at the supported layouts,
+    // and I haven't found a property that retrieves the actual currently
+    // active channel layout.
+
+    AudioChannelLayout *ml = ca_query_layout(ao, device, ta_ctx);
+    if (ml && ca_layout_to_mp_chmap(ao, ml, out_map)) {
+        if (channel_count == out_map->num)
+            goto done;
+    }
+
+    AudioChannelLayout *sl = ca_query_stereo_layout(ao, device, ta_ctx);
+    if (sl && ca_layout_to_mp_chmap(ao, sl, out_map)) {
+        if (channel_count == out_map->num)
+            goto done;
+    }
+
+    out_map->num = 0;
+done: ;
 }

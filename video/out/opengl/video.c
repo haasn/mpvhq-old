@@ -164,8 +164,8 @@ struct gl_video {
     struct fbotex chroma_deband_fbo;
     struct fbotex indirect_fbo;
     struct fbotex blend_subs_fbo;
-    struct fbotex output_fbo;
     struct fbotex unsharp_fbo;
+    struct fbotex output_fbo;
     struct fbosurface surfaces[FBOSURFACES_MAX];
 
     // these are duplicated so we can keep rendering back and forth between
@@ -1997,20 +1997,33 @@ void gl_video_render_frame(struct gl_video *p, struct vo_frame *frame, int fbo)
         if (p->opts.interpolation && (p->frames_drawn || !frame->still)) {
             gl_video_interpolate_frame(p, frame, fbo);
         } else {
-            // For the non-interplation case, we just draw to a single "cache"
-            // FBO to speed up subsequent re-draws
+            // For the non-interplation case, we draw to a single "cache"
+            // FBO to speed up subsequent re-draws (if any exist)
             int vp_w = p->dst_rect.x1 - p->dst_rect.x0,
                 vp_h = p->dst_rect.y1 - p->dst_rect.y0;
 
-            if (!frame->redraw || !p->output_fbo_valid) {
+            bool is_new = !frame->redraw && !frame->repeat;
+            if (is_new || !p->output_fbo_valid) {
                 gl_video_upload_image(p, frame->current);
                 pass_render_frame(p);
-                finish_pass_fbo(p, &p->output_fbo, vp_w, vp_h, 0, FBOTEX_FUZZY);
-                p->output_fbo_valid = true;
+
+                if (frame->num_vsyncs == 1) {
+                    // Disable output_fbo_valid to signal that this frame
+                    // does not require any redraws from the FBO.
+                    pass_draw_to_screen(p, fbo);
+                    p->output_fbo_valid = false;
+                } else {
+                    finish_pass_fbo(p, &p->output_fbo, vp_w, vp_h, 0, FBOTEX_FUZZY);
+                    p->output_fbo_valid = true;
+                }
             }
-            pass_load_fbotex(p, &p->output_fbo, vp_w, vp_h, 0);
-            GLSL(vec4 color = texture(texture0, texcoord0);)
-            pass_draw_to_screen(p, fbo);
+
+            // "output fbo valid" and "output fbo needed" are equivalent
+            if (p->output_fbo_valid) {
+                pass_load_fbotex(p, &p->output_fbo, vp_w, vp_h, 0);
+                GLSL(vec4 color = texture(texture0, texcoord0);)
+                pass_draw_to_screen(p, fbo);
+            }
         }
     }
 
@@ -2563,7 +2576,6 @@ static char **dup_str_array(void *parent, char **src)
 
 static void assign_options(struct gl_video_opts *dst, struct gl_video_opts *src)
 {
-    talloc_free(dst->source_shader);
     talloc_free(dst->scale_shader);
     talloc_free(dst->pre_shaders);
     talloc_free(dst->post_shaders);
@@ -2579,7 +2591,6 @@ static void assign_options(struct gl_video_opts *dst, struct gl_video_opts *src)
             (char *)handle_scaler_opt(dst->scaler[n].kernel.name, n == 3);
     }
 
-    dst->source_shader = talloc_strdup(NULL, dst->source_shader);
     dst->scale_shader = talloc_strdup(NULL, dst->scale_shader);
     dst->pre_shaders = dup_str_array(NULL, dst->pre_shaders);
     dst->post_shaders = dup_str_array(NULL, dst->post_shaders);
