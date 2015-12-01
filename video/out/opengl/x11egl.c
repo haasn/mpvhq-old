@@ -68,7 +68,7 @@ static EGLConfig select_fb_config_egl(struct MPGLContext *ctx, bool es)
     eglChooseConfig(p->egl_display, attributes, &config, 1, &config_count);
 
     if (!config_count) {
-        MP_FATAL(ctx->vo, "Could find EGL configuration!\n");
+        MP_FATAL(ctx->vo, "Could not find EGL configuration!\n");
         return NULL;
     }
 
@@ -159,13 +159,6 @@ static int mpegl_init(struct MPGLContext *ctx, int flags)
 
     ctx->native_display_type = "x11";
     ctx->native_display = vo->x11->display;
-
-    if (vo->probing) {
-        const char *vendor = ctx->gl->GetString(GL_VENDOR);
-        if (vendor && strstr(vendor, "NVIDIA Corporation"))
-            goto uninit;
-    }
-
     return 0;
 
 uninit:

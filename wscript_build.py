@@ -57,6 +57,10 @@ def build(ctx):
         source = "sub/osd_font.otf",
         target = "sub/osd_font.h")
 
+    ctx.file2string(
+        source = "video/out/opengl/nnedi3_weights.bin",
+        target = "video/out/opengl/nnedi3_weights.inc")
+
     lua_files = ["defaults.lua", "assdraw.lua", "options.lua", "osc.lua",
                  "ytdl_hook.lua"]
     for fn in lua_files:
@@ -158,7 +162,6 @@ def build(ctx):
         ( "demux/demux_edl.c" ),
         ( "demux/demux_lavf.c" ),
         ( "demux/demux_libarchive.c",            "libarchive" ),
-        ( "demux/demux_libass.c",                "libass"),
         ( "demux/demux_mf.c" ),
         ( "demux/demux_mkv.c" ),
         ( "demux/demux_mkv_timeline.c" ),
@@ -324,14 +327,18 @@ def build(ctx):
         ( "video/out/opengl/hwdec_osx.c",        "videotoolbox-gl" ),
         ( "video/out/opengl/hwdec_vdpau.c",      "vdpau-gl-x11" ),
         ( "video/out/opengl/lcms.c",             "gl" ),
+        ( "video/out/opengl/nnedi3.c",           "gl" ),
         ( "video/out/opengl/osd.c",              "gl" ),
+        ( "video/out/opengl/superxbr.c",         "gl" ),
         ( "video/out/opengl/utils.c",            "gl" ),
         ( "video/out/opengl/video.c",            "gl" ),
         ( "video/out/opengl/video_shaders.c",    "gl" ),
         ( "video/out/opengl/w32.c",              "gl-win32" ),
+        ( "video/out/opengl/angle.c",            "egl-angle" ),
         ( "video/out/opengl/wayland.c",          "gl-wayland" ),
         ( "video/out/opengl/x11.c",              "gl-x11" ),
         ( "video/out/opengl/x11egl.c",           "egl-x11" ),
+        ( "video/out/opengl/drm_egl.c",          "egl-drm" ),
         ( "video/out/vo.c" ),
         ( "video/out/vo_caca.c",                 "caca" ),
         ( "video/out/vo_drm.c",                  "drm" ),
@@ -349,6 +356,8 @@ def build(ctx):
         ( "video/out/vo_x11.c" ,                 "x11" ),
         ( "video/out/vo_xv.c",                   "xv" ),
         ( "video/out/w32_common.c",              "win32" ),
+        ( "video/out/win32/displayconfig.c",     "win32" ),
+        ( "video/out/win32/exclusive_hack.c",    "gl-win32" ),
         ( "video/out/wayland_common.c",          "wayland" ),
         ( "video/out/wayland/buffer.c",          "wayland" ),
         ( "video/out/wayland/memfile.c",         "wayland" ),
@@ -548,3 +557,7 @@ def build(ctx):
             ctx.install_as(
                 ctx.env.DATADIR + '/icons/hicolor/' + size + '/apps/mpv.png',
                 'etc/mpv-icon-8bit-' + size + '.png')
+
+        ctx.install_as(
+                ctx.env.DATADIR + '/icons/hicolor/scalable/apps/mpv.svg',
+                'etc/mpv-gradient.svg')

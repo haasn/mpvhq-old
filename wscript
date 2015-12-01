@@ -130,7 +130,7 @@ main_dependencies = [
         'name': 'win32',
         'desc': 'win32',
         'deps_any': [ 'os-win32', 'os-cygwin' ],
-        'func': check_cc(lib=['winmm', 'gdi32', 'ole32', 'uuid']),
+        'func': check_cc(lib=['winmm', 'gdi32', 'ole32', 'uuid', 'avrt']),
     }, {
         'name': '--win32-internal-pthreads',
         'desc': 'internal pthread wrapper for win32 (Vista+)',
@@ -243,6 +243,10 @@ iconv support use --disable-iconv.",
         'desc': 'vt.h',
         'func': check_statement(['sys/vt.h', 'sys/ioctl.h'],
                                 'int m; ioctl(0, VT_GETMODE, &m)'),
+    }, {
+        'name': 'gbm.h',
+        'desc': 'gbm.h',
+        'func': check_cc(header_name=['stdio.h', 'gbm.h']),
     }, {
         'name': 'glibc-thread-name',
         'desc': 'GLIBC API for setting thread name',
@@ -569,6 +573,16 @@ video_output_features = [
         'name': '--cocoa',
         'desc': 'Cocoa',
         'func': check_cocoa
+    }, {
+        'name': '--drm',
+        'desc': 'DRM',
+        'deps': [ 'vt.h' ],
+        'func': check_pkg_config('libdrm'),
+    }, {
+        'name': '--gbm',
+        'desc': 'GBM',
+        'deps': [ 'gbm.h' ],
+        'func': check_pkg_config('gbm'),
     } , {
         'name': '--wayland',
         'desc': 'Wayland',
@@ -625,6 +639,12 @@ video_output_features = [
         'groups': [ 'gl' ],
         'func': check_pkg_config('egl', 'gl'),
     } , {
+        'name': '--egl-drm',
+        'desc': 'OpenGL DRM EGL Backend',
+        'deps': [ 'drm', 'gbm' ],
+        'groups': [ 'gl' ],
+        'func': check_pkg_config('egl', 'gl'),
+    } , {
         'name': '--gl-wayland',
         'desc': 'OpenGL Wayland Backend',
         'deps': [ 'wayland' ],
@@ -638,6 +658,14 @@ video_output_features = [
         'groups': [ 'gl' ],
         'func': check_statement('windows.h', 'wglCreateContext(0)',
                                 lib='opengl32')
+    } , {
+        'name': '--egl-angle',
+        'desc': 'OpenGL Win32 ANGLE Backend',
+        'deps_any': [ 'os-win32', 'os-cygwin' ],
+        'groups': [ 'gl' ],
+        'func': check_statement(['EGL/egl.h'],
+                                'eglCreateWindowSurface(0, 0, 0, 0)',
+                                lib='EGL')
     } , {
         'name': '--vdpau',
         'desc': 'VDPAU acceleration',
@@ -662,7 +690,7 @@ video_output_features = [
     }, {
         'name': '--vaapi-wayland',
         'desc': 'VAAPI (Wayland support)',
-        'deps': [ 'vaapi', 'wayland' ],
+        'deps': [ 'vaapi', 'gl-wayland' ],
         'func': check_pkg_config('libva-wayland', '>= 0.36.0'),
 
     }, {
@@ -685,11 +713,6 @@ video_output_features = [
         'name': '--caca',
         'desc': 'CACA',
         'func': check_pkg_config('caca', '>= 0.99.beta18'),
-    }, {
-        'name': '--drm',
-        'desc': 'DRM',
-        'deps': [ 'vt.h' ],
-        'func': check_pkg_config('libdrm'),
     }, {
         'name': '--jpeg',
         'desc': 'JPEG support',
@@ -725,7 +748,7 @@ video_output_features = [
     } , {
         'name': '--gl',
         'desc': 'OpenGL video outputs',
-        'deps_any': [ 'gl-cocoa', 'gl-x11', 'gl-win32', 'gl-wayland', 'rpi' ],
+        'deps_any': [ 'gl-cocoa', 'gl-x11', 'egl-drm', 'gl-win32', 'gl-wayland', 'rpi' ],
         'func': check_true
     }
 ]

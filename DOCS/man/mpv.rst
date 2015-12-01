@@ -192,23 +192,19 @@ corresponding adjustment, or the software equalizer (``--vf=eq``).)
 7 and 8
     Adjust saturation.
 
-(The following keys are valid only on OS X.)
-
-command + 0
+Alt+0 (and command+0 on OSX)
     Resize video window to half its original size.
-    (On other platforms, you can bind keys to change the ``window-scale``
-    property.)
 
-command + 1
+Alt+1 (and command+1 on OSX)
     Resize video window to its original size.
 
-command + 2
+Alt+2 (and command+2 on OSX)
     Resize video window to double its original size.
 
-command + f
+command + f (OSX only)
     Toggle fullscreen (see also ``--fs``).
 
-command + [ and command + ]
+command + [ and command + ] (OSX only)
     Set video window alpha.
 
 (The following keys are valid if you have a keyboard with multimedia keys.)
@@ -262,7 +258,7 @@ parser puts several options into a single string, and passes them to a
 component at once, instead of using multiple options on the level of the
 command line.
 
-The suboption parser can quote strings with ``"``, ``'``, and ``[...]``.
+The suboption parser can quote strings with ``"`` and ``[...]``.
 Additionally, there is a special form of quoting with ``%n%`` described below.
 
 For example, the ``opengl`` VO can take multiple options:
@@ -392,10 +388,11 @@ You can put all of the options in configuration files which will be read every
 time mpv is run. The system-wide configuration file 'mpv.conf' is in your
 configuration directory (e.g. ``/etc/mpv`` or ``/usr/local/etc/mpv``), the
 user-specific one is ``~/.config/mpv/mpv.conf``. For details and platform
-specifics see the `FILES`_ section.
+specifics (in particular Windows paths) see the `FILES`_ section.
+
 User-specific options override system-wide options and options given on the
 command line override either. The syntax of the configuration files is
-``option=<value>``; everything after a *#* is considered a comment. Options
+``option=value``. Everything after a *#* is considered a comment. Options
 that work without values can be enabled by setting them to *yes* and disabled by
 setting them to *no*. Even suboptions can be specified in this way.
 
@@ -413,7 +410,7 @@ Escaping spaces and special characters
 
 This is done like with command line options. The shell is not involved here,
 but option values still need to be quoted as a whole if it contains certain
-characters like spaces. A config entry can be quoted with ``"`` and ``'``,
+characters like spaces. A config entry can be quoted with ``"``,
 as well as with the fixed-length syntax (``%n%``) mentioned before. This is like
 passing the exact contents of the quoted string as command line option. C-style
 escapes are currently _not_ interpreted on this level, although some options do
@@ -460,7 +457,38 @@ description (shown by ``--profile=help``) can be defined with the
 ``profile-desc`` option. To end the profile, start another one or use the
 profile name ``default`` to continue with normal options.
 
-.. admonition:: Example mpv profile
+.. admonition:: Example mpv config file with profiles
+
+    ::
+
+        # normal top-level option
+        fullscreen=yes
+
+        # a profile that can be enabled with --profile=big-cache
+        [big-cache]
+        cache=123400
+        demuxer-readahead-secs=20
+
+        [slow]
+        profile-desc="some profile name"
+        vo=opengl:scale=ewa_lanczos:scale-radius=16
+
+        [fast]
+        vo=vdpau
+
+        # using a profile again extends it
+        [slow]
+        framedrop=no
+        # you can also include other profiles
+        profile=big-cache
+
+
+Auto profiles
+-------------
+
+Some profiles are loaded automatically. The following example demonstrates this:
+
+.. admonition:: Auto profile loading
 
     ::
 
@@ -479,6 +507,13 @@ profile name ``default`` to continue with normal options.
         [ao.alsa]
         device=spdif
 
+The profile name follows the schema ``type.name``, where type can be ``vo``
+to match the value the ``--vo`` option is set to, ``ao`` for ``--ao``,
+``protocol`` for the input/output protocol in use (see ``--list-protocols``),
+and ``extension`` for the extension of the path of the currently played file
+(*not* the file format).
+
+This feature is very limited, and there are no other auto profiles.
 
 TAKING SCREENSHOTS
 ==================
@@ -527,13 +562,13 @@ listed.
   this will indicate a problem. (``total-avsync-change`` property.)
 - Encoding state in ``{...}``, only shown in encoding mode.
 - Display sync state. If display sync is active (``display-sync-active``
-  property), this shows ``DS: +0.02598%``, where the number is the speed change
-  factor applied to audio to achieve sync to display, expressed in percent
-  deviation from 1.0 (``audio-speed-correction`` property). In sync modes which
-  don't resample, this will always be ``+0.00000%``.
-- Missed frames, e.g. ``Missed: 4``. (``vo-missed-frame-count`` property.) Shows
-  up in display sync mode only. This is incremented each time a frame took
-  longer to display than intended.
+  property), this shows ``DS: 2.500/13``, where the first number is average
+  number of vsyncs per video frame (e.g. 2.5 when playing 24Hz videos on 60Hz
+  screens), which might jitter if the ratio doesn't round off, or there are
+  mistimed frames (``vsync-ratio``), and the second number of estimated number
+  of vsyncs which took too long (``vo-delayed-frame-count`` property). The
+  latter is a heuristic, as it's generally not possible to determine this with
+  certainty.
 - Dropped frames, e.g. ``Dropped: 4``. Shows up only if the count is not 0. Can
   grow if the video framerate is higher than that of the display, or if video
   rendering is too slow. Also can be incremented on "hiccups" and when the video
@@ -687,6 +722,15 @@ The profile always overrides other settings in ``mpv.conf``.
 .. include:: ipc.rst
 
 .. include:: changes.rst
+
+
+EMBEDDING INTO OTHER PROGRAMS (LIBMPV)
+======================================
+
+mpv can be embedded into other programs as video/audio playback backend. The
+recommended way to to so is using libmpv. See ``libmpv/client.h`` in the mpv
+source code repository. This provides a C API. Bindings for other languages
+might be available (see wiki).
 
 ENVIRONMENT VARIABLES
 =====================
@@ -905,49 +949,3 @@ future.
 
 Note that mpv likes to mix ``/`` and ``\`` path separators for simplicity.
 kernel32.dll accepts this, but cmd.exe does not.
-
-EXAMPLES OF MPV USAGE
-=====================
-
-Blu-ray playback:
-    - ``mpv bd:////path/to/disc``
-    - ``mpv bd:// --bluray-device=/path/to/disc``
-
-Play in Japanese with English subtitles:
-    ``mpv dvd://1 --alang=ja --slang=en``
-
-Play only chapters 5, 6, 7:
-    ``mpv dvd://1 --chapter=5-7``
-
-Play only titles 5, 6, 7:
-    ``mpv dvd://5-7``
-
-Play a multi-angle DVD:
-    ``mpv dvd://1 --dvd-angle=2``
-
-Play from a different DVD device:
-    ``mpv dvd://1 --dvd-device=/dev/dvd2``
-
-Play DVD video from a directory with VOB files:
-    ``mpv dvd://1 --dvd-device=/path/to/directory/``
-
-Stream from HTTP:
-    ``mpv http://example.com/example.avi``
-
-Stream using RTSP:
-    ``mpv rtsp://server.example.com/streamName``
-
-Play a libavfilter graph:
-    ``mpv avdevice://lavfi:mandelbrot``
-
-AUTHORS
-=======
-
-mpv is a MPlayer fork based on mplayer2, which in turn is a fork of MPlayer.
-
-MPlayer was initially written by Arpad Gereoffy. See the ``AUTHORS`` file for
-a list of some of the many other contributors.
-
-MPlayer is (C) 2000-2013 The MPlayer Team
-
-This man page was written mainly by Gabucino, Jonas Jermann and Diego Biurrun.

@@ -22,7 +22,7 @@
 #include <stdbool.h>
 #include "misc/bstr.h"
 
-#define MP_NUM_CHANNELS 8
+#define MP_NUM_CHANNELS 16
 
 // Speaker a channel can be assigned to.
 // This corresponds to WAVEFORMATEXTENSIBLE channel mask bit indexes.
@@ -108,7 +108,6 @@ void mp_chmap_fill_na(struct mp_chmap *map, int num);
 
 void mp_chmap_from_channels(struct mp_chmap *dst, int num_channels);
 void mp_chmap_set_unknown(struct mp_chmap *dst, int num_channels);
-void mp_chmap_from_channels_alsa(struct mp_chmap *dst, int num_channels);
 
 void mp_chmap_remove_useless_channels(struct mp_chmap *map,
                                       const struct mp_chmap *requested);

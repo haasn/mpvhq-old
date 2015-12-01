@@ -9,12 +9,13 @@ struct mp_hwdec_info;
 struct gl_hwdec {
     const struct gl_hwdec_driver *driver;
     struct mp_log *log;
+    struct mpv_global *global;
     GL *gl;
     struct mp_hwdec_ctx *hwctx;
     // For free use by hwdec driver
     void *priv;
     // For working around the vdpau vs. vaapi mess.
-    bool reject_emulated;
+    bool probing;
     // hwdec backends must set this to an IMGFMT_ that has an equivalent
     // internal representation in gl_video.c as the hardware texture.
     // It's used to build the rendering chain. For example, setting it to
@@ -45,8 +46,9 @@ struct gl_hwdec_driver {
 };
 
 struct gl_hwdec *gl_hwdec_load_api(struct mp_log *log, GL *gl,
-                                   const char *api_name);
-struct gl_hwdec *gl_hwdec_load_api_id(struct mp_log *log, GL *gl, int id);
+                                   struct mpv_global *g, const char *api_name);
+struct gl_hwdec *gl_hwdec_load_api_id(struct mp_log *log, GL *gl,
+                                      struct mpv_global *g, int id);
 
 void gl_hwdec_uninit(struct gl_hwdec *hwdec);
 

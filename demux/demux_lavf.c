@@ -612,6 +612,10 @@ static void handle_stream(demuxer_t *demuxer, int i)
                     sh_sub->frame_based = 23.976;
             }
         }
+
+        if (matches_avinputformat_name(priv, "ass"))
+            sh_sub->is_utf8 = true;
+
         break;
     }
     case AVMEDIA_TYPE_ATTACHMENT: {
@@ -853,7 +857,7 @@ static int demux_lavf_fill_buffer(demuxer_t *demux)
     AVPacket *pkt = &(AVPacket){0};
     int r = av_read_frame(priv->avfc, pkt);
     if (r < 0) {
-        av_free_packet(pkt);
+        av_packet_unref(pkt);
         if (r == AVERROR(EAGAIN))
             return 1;
         if (r == AVERROR_EOF)
@@ -870,13 +874,13 @@ static int demux_lavf_fill_buffer(demuxer_t *demux)
     AVStream *st = priv->avfc->streams[pkt->stream_index];
 
     if (!demux_stream_is_selected(stream)) {
-        av_free_packet(pkt);
+        av_packet_unref(pkt);
         return 1; // don't signal EOF if skipping a packet
     }
 
     struct demux_packet *dp = new_demux_packet_from_avpacket(pkt);
     if (!dp) {
-        av_free_packet(pkt);
+        av_packet_unref(pkt);
         return 1;
     }
 
@@ -896,7 +900,7 @@ static int demux_lavf_fill_buffer(demuxer_t *demux)
     } else if (dp->dts != MP_NOPTS_VALUE) {
         priv->last_pts = dp->dts * AV_TIME_BASE;
     }
-    av_free_packet(pkt);
+    av_packet_unref(pkt);
 
     if (priv->format_hack.clear_filepos)
         dp->pos = -1;

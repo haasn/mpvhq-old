@@ -860,7 +860,11 @@ Property list
               quantities: fps and possibly rounded timestamps.)
 
 ``path``
-    Full path of the currently played file.
+    Full path of the currently played file. Usually this is exactly the same
+    string you pass on the mpv command line or the ``loadfile`` command, even
+    if it's a relative path. If you expect an absolute path, you will have to
+    determine it yourself, for example by using the ``working-directory``
+    property.
 
 ``media-title``
     If the currently played file has a ``title`` tag, use that.
@@ -913,6 +917,26 @@ Property list
 ``vo-drop-frame-count``
     Frames dropped by VO (when using ``--framedrop=vo``).
 
+``mistimed-frame-count``
+    Number of video frames that were not timed correctly in display-sync mode
+    for the sake of keeping A/V sync. This does not include external
+    circumstances, such as video rendering being too slow or the graphics
+    driver somehow skipping a vsync. It does not include rounding errors either
+    (which can happen especially with bad source timestamps). For example,
+    using the ``display-desync`` mode should never change this value from 0.
+
+``vsync-ratio``
+    For how many vsyncs a frame is displayed on average. This is available if
+    display-sync is active only. For 30 FPS video on a 60 Hz screen, this will
+    be 2. This is the moving average of what actually has been scheduled, so
+    24 FPS on 60 Hz will never remain exactly on 2.5, but jitter depending on
+    the last frame displayed.
+
+``vo-delayed-frame-count``
+    Estimated number of frames delayed due to external circumstances in
+    display-sync mode. Note that in general, mpv has to guess that this is
+    happening, and the guess can be inaccurate.
+
 ``percent-pos`` (RW)
     Position in current file (0-100). The advantage over using this instead of
     calculating it out of other properties is that it properly falls back to
@@ -923,8 +947,9 @@ Property list
     Position in current file in seconds.
 
 ``time-start``
-    Return the start time of the file. (Usually 0, but some kind of files,
-    especially transport streams, can have a different start time.)
+    Deprecated. Always returns 0. Before mpv 0.14, this used to return the start
+    time of the file (could affect e.g. transport streams). See
+    ``--rebase-start-time`` option.
 
 ``time-remaining``
     Remaining length of the file in seconds. Note that the file duration is not
@@ -934,9 +959,11 @@ Property list
     ``time-remaining`` scaled by the current ``speed``.
 
 ``playback-time`` (RW)
-    The playback time, which is the time relative to playback start. (This can
-    be different from the ``time-pos`` property if the file does not start at
-    position ``0``, in which case ``time-pos`` is the source timestamp.)
+    Position in current file in seconds. Unlike ``time-pos``, the time is
+    clamped to the range of the file. (Inaccurate file durations etc. could
+    make it go out of range. Also helpful when the user attempts to seek
+    outside of the file, as the seek target time is considered the current
+    position during seeking.)
 
 ``chapter`` (RW)
     Current chapter number. The number of the first chapter is 0.
@@ -1421,6 +1448,19 @@ Property list
 
     Has the same sub-properties as ``video-params``.
 
+``video-frame-info``
+    Approximate information of the current frame. Note that if any of these
+    are used on OSD, the information might be off by a few frames due to OSD
+    redrawing and frame display being somewhat disconnected, and you might
+    have to pause and force a redraw.
+
+    Sub-properties:
+
+    ``video-frame-info/picture-type``
+    ``video-frame-info/interlaced``
+    ``video-frame-info/tff``
+    ``video-frame-info/repeat``
+
 ``fps``
     Container FPS. This can easily contain bogus values. For videos that use
     modern container formats or video codecs, this will often be incorrect.
@@ -1447,12 +1487,20 @@ Property list
     Names of the displays that the mpv window covers. On X11, these
     are the xrandr names (LVDS1, HDMI1, DP1, VGA1, etc.).
 
-``display-fps``
+``display-fps`` (RW)
     The refresh rate of the current display. Currently, this is the lowest FPS
     of any display covered by the video, as retrieved by the underlying system
     APIs (e.g. xrandr on X11). It is not the measured FPS. It's not necessarily
     available on all platforms. Note that any of the listed facts may change
     any time without a warning.
+
+``estimated-display-fps``
+    Only available if display-sync mode (as selected by ``--video-sync``) is
+    active. Returns the actual rate at which display refreshes seem to occur,
+    measured by system time.
+
+``vsync-jitter``
+    Estimated deviation factor of the vsync duration.
 
 ``video-aspect`` (RW)
     Video aspect, see ``--video-aspect``.

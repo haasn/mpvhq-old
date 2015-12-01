@@ -30,171 +30,6 @@
 #define GLSLH(x) gl_sc_hadd(sc, #x "\n");
 #define GLSLHF(...) gl_sc_haddf(sc, __VA_ARGS__)
 
-// Defines a colorspace-dependent macro to obtain a sample's luminance, works
-// with both linear and companded RGB
-static void luma_header(struct gl_shader_cache *sc, enum mp_csp_prim primaries)
-{
-    // Obtain the luma coefficients from the RGB->XYZ matrix's Y column
-    float m[3][3];
-    struct mp_csp_primaries csp = mp_get_csp_primaries(primaries);
-    mp_get_rgb2xyz_matrix(csp, m);
-    GLSLHF("#define luma(v) dot(vec3(%f, %f, %f), v.rgb)\n",
-                m[1][0], m[1][1], m[1][2]);
-}
-
-void super_xbr_header(struct gl_shader_cache *sc, int pass,
-                      enum mp_csp_prim primaries, float weight, float edge_str)
-{
-    // Sample from the appropriately rotated plane. This could possibly
-    // be done in a better way by rotating the actual source coordinates,
-    // but I'd rather the algorithm work first. Also set up the weights.
-    if (pass == 0) {
-        GLSLH(#define get(x, y) texture(tex, pos + pt * (vec2(x,y) - vec2(0.25))).rgb)
-
-        GLSLH(#define wp1  2.0)
-        GLSLH(#define wp2  1.0)
-        GLSLH(#define wp3 -1.0)
-        GLSLH(#define wp4  4.0)
-        GLSLH(#define wp5 -1.0)
-        GLSLH(#define wp6  1.0)
-
-        GLSLHF("#define weight1 (%f*0.129633)\n", weight);
-        GLSLHF("#define weight2 (%f*0.175068)\n", weight/2.0);
-
-    } else {
-        GLSLH(#define get(x, y) texture(tex, pos + pt * vec2((x)+(y)-1, (y)-(x))).rgb)
-
-        GLSLH(#define wp1 2.0)
-        GLSLH(#define wp2 0.0)
-        GLSLH(#define wp3 0.0)
-        GLSLH(#define wp4 0.0)
-        GLSLH(#define wp5 0.0)
-        GLSLH(#define wp6 0.0)
-
-        GLSLHF("#define weight1 (%f*0.175068)\n", weight);
-        GLSLHF("#define weight2 (%f*0.129633)\n", weight/2.0);
-    }
-
-    // Weight function helpers
-    GLSLH(#define d(a,b) distance(a,b))
-    GLSLH(float d_wd(float b0, float b1, float c0, float c1, float c2,
-                     float d0, float d1, float d2, float d3, float e1,
-                     float e2, float e3, float f2, float f3)
-          {
-              return wp1*(d(c1,c2) + d(c1,c0) + d(e2,e1) + d(e2,e3))
-                   + wp2*(d(d2,d3) + d(d0,d1))
-                   + wp3*(d(d1,d3) + d(d0,d2))
-                   + wp4*d(d1,d2)
-                   + wp5*(d(c0,c2) + d(e1,e3))
-                   + wp6*(d(b0,b1) + d(f2,f3));
-          }
-
-          float o_wd(float i1, float i2, float i3, float i4,
-                     float e1, float e2, float e3, float e4)
-          {
-              return wp4*(d(i1,i2) + d(i3,i4))
-                   + wp1*(d(i1,e1) + d(i2,e2) + d(i3,e3) + d(i4,e4))
-                   + wp3*(d(i1,e2) + d(i3,e4) + d(e1,i2) + d(e3,i4));
-          }
-    )
-
-    // The shader logic is inside a sub-function to let us return prematurely
-    GLSLHF("vec3 super_xbr(sampler2D tex, vec2 pos, vec2 size) {\n");
-
-    // Return untouched the pixels that form part of the original image
-    GLSLH(vec2 pt = vec2(1.0) / size;)
-    GLSLHF("vec2 dir = fract(pos * size / %f) - 0.5;\n", pass+1.0);
-    if (pass == 0) {
-        // Optimization: Discard (skip drawing) unused pixels, except those
-        // at the edge.
-        GLSLH(vec2 dist = size * min(pos, vec2(1.0) - pos);)
-        GLSLH(if (dir.x * dir.y < 0 && dist.x > 1 && dist.y > 1)
-                  return vec3(0.0);)
-        GLSLH(if (dir.x < 0 || dir.y < 0 || dist.x < 1 || dist.y < 1)
-                  return texture(tex, pos - pt * dir).rgb;)
-    } else {
-        GLSLH(if (dir.x * dir.y > 0) return texture(tex, pos).rgb;)
-    }
-
-    // Sample all the necessary pixels
-    GLSLH(vec3 P0 = get(-1,-1);)
-    GLSLH(vec3 P1 = get( 2,-1);)
-    GLSLH(vec3 P2 = get(-1, 2);)
-    GLSLH(vec3 P3 = get( 2, 2);)
-
-    GLSLH(vec3 B = get( 0,-1);)
-    GLSLH(vec3 C = get( 1,-1);)
-    GLSLH(vec3 D = get(-1, 0);)
-    GLSLH(vec3 E = get( 0, 0);)
-    GLSLH(vec3 F = get( 1, 0);)
-    GLSLH(vec3 G = get(-1, 1);)
-    GLSLH(vec3 H = get( 0, 1);)
-    GLSLH(vec3 I = get( 1, 1);)
-
-    GLSLH(vec3 F4 = get(2, 0);)
-    GLSLH(vec3 I4 = get(2, 1);)
-    GLSLH(vec3 H5 = get(0, 2);)
-    GLSLH(vec3 I5 = get(1, 2);)
-
-    // Get their corresponding brightness values
-    luma_header(sc, primaries);
-    GLSLH(float b = luma(B);)
-    GLSLH(float c = luma(C);)
-    GLSLH(float d = luma(D);)
-    GLSLH(float e = luma(E);)
-    GLSLH(float f = luma(F);)
-    GLSLH(float g = luma(G);)
-    GLSLH(float h = luma(H);)
-    GLSLH(float i = luma(I);)
-
-    GLSLH(float i4 = luma(I4); float p0 = luma(P0);)
-    GLSLH(float i5 = luma(I5); float p1 = luma(P1);)
-    GLSLH(float h5 = luma(H5); float p2 = luma(P2);)
-    GLSLH(float f4 = luma(F4); float p3 = luma(P3);)
-
-    /*
-                                  P1
-         |P0|B |C |P1|         C     F4          |a0|b1|c2|d3|
-         |D |E |F |F4|      B     F     I4       |b0|c1|d2|e3|   |e1|i1|i2|e2|
-         |G |H |I |I4|   P0    E  A  I     P3    |c0|d1|e2|f3|   |e3|i3|i4|e4|
-         |P2|H5|I5|P3|      D     H     I5       |d0|e1|f2|g3|
-                               G     H5
-                                  P2
-    */
-
-    // Compute edge coefficients in the diagonal and orthogonal directions
-    GLSLH(float d_edge = (d_wd(d, b, g, e, c, p2, h, f, p1, h5, i, f4, i5, i4)
-                        - d_wd(c, f4, b, f, i4, p0, e, i, p3, d, h, i5, g, h5));)
-    GLSLH(float o_edge = (o_wd(f, i, e, h, c, i5, b, h5)
-                        - o_wd(e, f, h, i, d, f4, g, i4));)
-
-    // Weight vectors for filtering (two taps)
-    GLSLH(vec4 w1 = vec4(-weight1, vec2(weight1+0.50), -weight1);)
-    GLSLH(vec4 w2 = vec4(-weight2, vec2(weight2+0.25), -weight2);)
-
-    // Filtering and normalization in four directions
-    GLSLH(vec3 c1 = mat4x3(P2, H, F, P1) * w1;)
-    GLSLH(vec3 c2 = mat4x3(P0, E, I, P3) * w1;)
-    GLSLH(vec3 c3 = mat4x3( D, E, F, F4) * w2 + mat4x3( G, H, I, I4) * w2;)
-    GLSLH(vec3 c4 = mat4x3( C, F, I, I5) * w2 + mat4x3( B, E, H, H5) * w2;)
-
-    // Generate the output color by smoothly blending the two strongest dirs
-    GLSLHF("float edge_str = smoothstep(0.0, %f + 1e-6, abs(d_edge));\n",
-                edge_str);
-    GLSLH(vec3 color = mix(mix(c1, c2, step(0.0, d_edge)),
-                           mix(c3, c4, step(0.0, o_edge)),
-                           1 - edge_str);)
-
-    // Simple anti-ringing code
-    GLSLH(vec3 lo = min(min(E, F), min(H, I));)
-    GLSLH(vec3 hi = max(max(E, F), max(H, I));)
-    GLSLH(vec3 clamped = clamp(color, lo, hi);)
-    GLSLH(color = mix(color, clamped, 1.0 - 2.0 * abs(edge_str - 0.5));)
-
-    GLSLH(return color;)
-    GLSLHF("}\n");
-}
-
 // Set up shared/commonly used variables
 void sampler_prelude(struct gl_shader_cache *sc, int tex_num)
 {
@@ -222,7 +57,7 @@ static void pass_sample_separated_get_weights(struct gl_shader_cache *sc,
     } else {
         GLSLF("float weights[%d];\n", N);
         for (int n = 0; n < N / 4; n++) {
-            GLSLF("c = texture(lut, vec2(1.0 / %d + %d / float(%d), fcoord));\n",
+            GLSLF("c = texture(lut, vec2(1.0 / %d.0 + %d.0 / %d.0, fcoord));\n",
                     N / 2, n, N / 4);
             GLSLF("weights[%d] = c.r;\n", n * 4 + 0);
             GLSLF("weights[%d] = c.g;\n", n * 4 + 1);
@@ -244,10 +79,10 @@ void pass_sample_separated_gen(struct gl_shader_cache *sc, struct scaler *scaler
     GLSL(vec4 color = vec4(0.0);)
     GLSLF("{\n");
     if (!planar) {
-        GLSLF("vec2 dir = vec2(%d, %d);\n", d_x, d_y);
+        GLSLF("vec2 dir = vec2(%d.0, %d.0);\n", d_x, d_y);
         GLSL(pt *= dir;)
         GLSL(float fcoord = dot(fract(pos * size - vec2(0.5)), dir);)
-        GLSLF("vec2 base = pos - fcoord * pt - pt * vec2(%d);\n", N / 2 - 1);
+        GLSLF("vec2 base = pos - fcoord * pt - pt * vec2(%d.0);\n", N / 2 - 1);
     }
     GLSL(vec4 c;)
     if (use_ar) {
@@ -260,7 +95,7 @@ void pass_sample_separated_gen(struct gl_shader_cache *sc, struct scaler *scaler
         if (planar) {
             GLSLF("c = texture(texture%d, texcoord%d);\n", n, n);
         } else {
-            GLSLF("c = texture(tex, base + pt * vec2(%d));\n", n);
+            GLSLF("c = texture(tex, base + pt * vec2(%d.0));\n", n);
         }
         GLSLF("color += vec4(weights[%d]) * c;\n", n);
         if (use_ar && (n == N/2-1 || n == N/2)) {
@@ -302,13 +137,17 @@ void pass_sample_polar(struct gl_shader_cache *sc, struct scaler *scaler)
             // Skip samples definitely outside the radius
             if (dmax >= radius)
                 continue;
-            GLSLF("d = length(vec2(%d, %d) - fcoord)/%f;\n", x, y, radius);
+            GLSLF("d = length(vec2(%d.0, %d.0) - fcoord)/%f;\n", x, y, radius);
             // Check for samples that might be skippable
             if (dmax >= radius - 1)
                 GLSLF("if (d < 1.0) {\n");
-            GLSL(w = texture1D(lut, d).r;)
+            if (scaler->gl_target == GL_TEXTURE_1D) {
+                GLSL(w = texture1D(lut, d).r;)
+            } else {
+                GLSL(w = texture(lut, vec2(0.5, d)).r;)
+            }
             GLSL(wsum += w;)
-            GLSLF("c = texture(tex, base + pt * vec2(%d, %d));\n", x, y);
+            GLSLF("c = texture(tex, base + pt * vec2(%d.0, %d.0));\n", x, y);
             GLSL(color += vec4(w) * c;)
             if (use_ar && x >= 0 && y >= 0 && x <= 1 && y <= 1) {
                 GLSL(lo = min(lo, c);)

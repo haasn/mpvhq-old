@@ -75,7 +75,7 @@ struct gl_video_opts {
     int target_prim;
     int target_trc;
     int linear_scaling;
-    int fancy_downscaling;
+    int correct_downscaling;
     int sigmoid_upscaling;
     float sigmoid_center;
     float sigmoid_slope;
@@ -95,12 +95,14 @@ struct gl_video_opts {
     char *scale_shader;
     char **pre_shaders;
     char **post_shaders;
-    int super_xbr;
-    float xbr_edge_str;
-    float xbr_weight;
     int deband;
     struct deband_opts *deband_opts;
     float unsharp;
+    int prescale;
+    int prescale_passes;
+    float prescale_downscaling_threshold;
+    struct superxbr_opts *superxbr_opts;
+    struct nnedi3_opts *nnedi3_opts;
 };
 
 extern const struct m_sub_options gl_video_conf;

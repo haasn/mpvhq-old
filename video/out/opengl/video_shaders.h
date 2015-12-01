@@ -32,9 +32,6 @@
 extern const struct deband_opts deband_opts_def;
 extern const struct m_sub_options deband_conf;
 
-void super_xbr_header(struct gl_shader_cache *sc, int pass,
-                      enum mp_csp_prim primaries, float weight, float edge_str);
-
 void sampler_prelude(struct gl_shader_cache *sc, int tex_num);
 void pass_sample_separated_gen(struct gl_shader_cache *sc, struct scaler *scaler,
                                int d_x, int d_y);

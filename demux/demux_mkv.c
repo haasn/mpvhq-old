@@ -203,7 +203,6 @@ struct demux_mkv_opts {
     double subtitle_preroll_secs;
     int probe_duration;
     int probe_start_time;
-    int fix_timestamps;
 };
 
 const struct m_sub_options demux_mkv_conf = {
@@ -214,14 +213,12 @@ const struct m_sub_options demux_mkv_conf = {
         OPT_CHOICE("probe-video-duration", probe_duration, 0,
                    ({"no", 0}, {"yes", 1}, {"full", 2})),
         OPT_FLAG("probe-start-time", probe_start_time, 0),
-        OPT_FLAG("fix-timestamps", fix_timestamps, 0),
         {0}
     },
     .size = sizeof(struct demux_mkv_opts),
     .defaults = &(const struct demux_mkv_opts){
         .subtitle_preroll_secs = 1.0,
         .probe_start_time = 1,
-        .fix_timestamps = 0,
     },
 };
 
@@ -234,7 +231,7 @@ const struct m_sub_options demux_mkv_conf = {
 // (Subtitle packets added before first A/V keyframe packet is found with seek.)
 #define NUM_SUB_PREROLL_PACKETS 500
 
-static void probe_last_timestamp(struct demuxer *demuxer);
+static void probe_last_timestamp(struct demuxer *demuxer, int64_t start_pos);
 static void probe_first_timestamp(struct demuxer *demuxer);
 static void free_block(struct block_info *block);
 
@@ -379,6 +376,10 @@ static int demux_mkv_read_info(demuxer_t *demuxer)
     struct ebml_parse_ctx parse_ctx = {demuxer->log};
     if (ebml_read_element(s, &parse_ctx, &info, &ebml_info_desc) < 0)
         return -1;
+    if (info.muxing_app)
+        MP_VERBOSE(demuxer, "| + muxing app: %s\n", info.muxing_app);
+    if (info.writing_app)
+        MP_VERBOSE(demuxer, "| + writing app: %s\n", info.writing_app);
     if (info.n_timecode_scale) {
         mkv_d->tc_scale = info.timecode_scale;
         MP_VERBOSE(demuxer, "| + timecode scale: %" PRIu64 "\n", mkv_d->tc_scale);
@@ -1903,7 +1904,7 @@ static int demux_mkv_open(demuxer_t *demuxer, enum demux_check check)
 
     probe_first_timestamp(demuxer);
     if (opts->demux_mkv->probe_duration)
-        probe_last_timestamp(demuxer);
+        probe_last_timestamp(demuxer, start_pos);
 
     return 0;
 }
@@ -2358,19 +2359,6 @@ exit:
     return res;
 }
 
-static double fix_timestamp(demuxer_t *demuxer, mkv_track_t *track, double ts)
-{
-    mkv_demuxer_t *mkv_d = demuxer->priv;
-    if (demuxer->opts->demux_mkv->fix_timestamps && track->default_duration > 0) {
-        // Assume that timestamps have been rounded to the timecode scale.
-        double quant = MPMIN(mkv_d->tc_scale / 1e9, 0.001);
-        double rts = rint(ts / track->default_duration) * track->default_duration;
-        if (fabs(rts - ts) < quant)
-            ts = rts;
-    }
-    return ts;
-}
-
 static int handle_block(demuxer_t *demuxer, struct block_info *block_info)
 {
     mkv_demuxer_t *mkv_d = (mkv_demuxer_t *) demuxer->priv;
@@ -2393,7 +2381,7 @@ static int handle_block(demuxer_t *demuxer, struct block_info *block_info)
         return 0;
     }
 
-    current_pts = fix_timestamp(demuxer, track, tc / 1e9) - track->codec_delay;
+    current_pts = tc / 1e9 - track->codec_delay;
 
     if (track->type == MATROSKA_TRACK_AUDIO) {
         if (mkv_d->a_skip_to_keyframe)
@@ -2671,8 +2659,7 @@ static int create_index_until(struct demuxer *demuxer, uint64_t timecode)
     mkv_index_t *index = get_highest_index_entry(demuxer);
 
     if (!index || index->timecode * mkv_d->tc_scale < timecode) {
-        if (index)
-            stream_seek(s, index->filepos);
+        stream_seek(s, index ? index->filepos : mkv_d->cluster_start);
         MP_VERBOSE(demuxer, "creating index until TC %" PRIu64 "\n", timecode);
         for (;;) {
             int res;
@@ -2867,10 +2854,9 @@ static void demux_mkv_seek(demuxer_t *demuxer, double rel_seek_secs, int flags)
     demux_mkv_fill_buffer(demuxer);
 }
 
-static void probe_last_timestamp(struct demuxer *demuxer)
+static void probe_last_timestamp(struct demuxer *demuxer, int64_t start_pos)
 {
     mkv_demuxer_t *mkv_d = demuxer->priv;
-    int64_t old_pos = stream_tell(demuxer->stream);
 
     if (!demuxer->seekable)
         return;
@@ -2908,9 +2894,11 @@ static void probe_last_timestamp(struct demuxer *demuxer)
             int64_t size = stream_get_size(demuxer->stream);
             stream_seek(demuxer->stream, MPMAX(size - 10 * 1024 * 1024, 0));
             if (ebml_resync_cluster(mp_null_log, demuxer->stream) < 0)
-                stream_seek(demuxer->stream, old_pos); // full scan otherwise
+                stream_seek(demuxer->stream, start_pos); // full scan otherwise
         }
     }
+
+    free_block(&mkv_d->tmp_block);
 
     int64_t last_ts[STREAM_TYPE_COUNT] = {0};
     while (1) {
@@ -2933,9 +2921,9 @@ static void probe_last_timestamp(struct demuxer *demuxer)
         last_ts[STREAM_VIDEO] = mkv_d->cluster_tc;
 
     if (last_ts[STREAM_VIDEO])
-        mkv_d->duration = last_ts[STREAM_VIDEO] / 1e9;
+        mkv_d->duration = last_ts[STREAM_VIDEO] / 1e9 - demuxer->start_time;
 
-    stream_seek(demuxer->stream, old_pos);
+    stream_seek(demuxer->stream, start_pos);
     mkv_d->cluster_start = mkv_d->cluster_end = 0;
 }
 

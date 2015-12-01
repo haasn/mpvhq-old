@@ -69,7 +69,8 @@ Playback Control
 
     The general format for absolute times is ``[[hh:]mm:]ss[.ms]``. If the time
     is given with a prefix of ``+`` or ``-``, the seek is relative from the start
-    or end of the file.
+    or end of the file. (Since mpv 0.14, the start of the file is always
+    considered 0.)
 
     ``pp%`` seeks to percent position pp (0-100).
 
@@ -100,6 +101,14 @@ Playback Control
 ``--length=<relative time>``
     Stop after a given time relative to the start time.
     See ``--start`` for valid option values and examples.
+
+``--rebase-start-time=<yes|no>``
+    Whether to move the file start time to ``00:00:00`` (default: yes). This
+    is less awkward for files which start at a random timestamp, such as
+    transport streams. On the other hand, if there are timestamp resets, the
+    resulting behavior can be rather weird. For this reason, and in case you
+    are actually interested in the real timestamps, this behavior can be
+    disabled with ``no``.
 
 ``--speed=<0.01-100>``
     Slow down or speed up playback by the factor given as parameter.
@@ -548,11 +557,10 @@ Video
         differences to other VOs are possible.
 
 ``--display-fps=<fps>``
-    Set the maximum assumed display FPS used with ``--framedrop``. By default
-    a detected value is used (X11 only, not correct on multi-monitor systems),
-    or infinite display FPS if that fails. Infinite FPS means only frames too
-    late are dropped. If a correct FPS is provided, frames that are predicted
-    to be too late are dropped too.
+    Set the display FPS used with the ``--video-sync=display-*`` modes. By
+    default a detected value is used (X11 only, not correct on multi-monitor
+    systems). Keep in mind that setting an incorrect value (even if slightly
+    incorrect) can ruin video playback.
 
 ``--hwdec=<api>``
     Specify the hardware video decoding API that should be used if possible.
@@ -608,6 +616,14 @@ Video
     allows enabling hardware decoding at runtime at all, without having to
     to temporarily set the ``hwdec`` option just during OpenGL context
     initialization with ``mpv_opengl_cb_init_gl()``.
+
+``--videotoolbox-format=<name>``
+    Set the internal pixel format used by ``--hwdec=videotoolbox`` on OSX. The
+    choice of the format can influence performance considerably. On the other
+    hand, there doesn't appear to be a good way to detect the best format for
+    the given hardware. ``nv12``, the default, works better on modern hardware,
+    while ``uyvy422`` appears to be better for old hardware. ``rgb0`` also
+    works.
 
 ``--panscan=<0.0-1.0>``
     Enables pan-and-scan functionality (cropping the sides of e.g. a 16:9
@@ -756,7 +772,7 @@ Video
     if supported.
 
     This behaves exactly like the ``deinterlace`` input property (usually
-    mapped to ``Shift+D``).
+    mapped to ``d``).
 
     ``auto`` is a technicality. Strictly speaking, the default for this option
     is deinterlacing disabled, but the ``auto`` case is needed if ``yadif`` was
@@ -813,9 +829,9 @@ Video
     You can get the list of allowed codecs with ``mpv --vd=help``. Remove the
     prefix, e.g. instead of ``lavc:h264`` use ``h264``.
 
-    By default this is set to ``h264,vc1,wmv3,hevc``. Note that the hardware
-    acceleration special codecs like ``h264_vdpau`` are not relevant anymore,
-    and in fact have been removed from Libav in this form.
+    By default this is set to ``h264,vc1,wmv3,hevc,mpeg2video``. Note that the
+    hardware acceleration special codecs like ``h264_vdpau`` are not relevant
+    anymore, and in fact have been removed from Libav in this form.
 
     This is usually only needed with broken GPUs, where a codec is reported
     as supported, but decoding causes more problems than it solves.
@@ -831,6 +847,11 @@ Video
     decoding is forced even if the profile of the video is higher than that.
     The result is most likely broken decoding, but may also help if the
     detected or reported profiles are somehow incorrect.
+
+``--vd-lavc-software-fallback=<yes|no|N>``
+    Fallback to software decoding if the hardware-accelerated decoder fails
+    (default: 3). If this is a number, then fallback will be triggered if
+    N frames fail to decode in a row. 1 is equivalent to ``yes``.
 
 ``--vd-lavc-bitexact``
     Only use bit-exact algorithms in all decoding steps (for codec testing).
@@ -852,7 +873,7 @@ Video
 
     .. admonition:: Example
 
-        ``--vd--lavc-o=debug=pict``
+        ``--vd-lavc-o=debug=pict``
 
 ``--vd-lavc-show-all=<yes|no>``
     Show even broken/corrupt frames (default: no). If this option is set to
@@ -1741,6 +1762,10 @@ Window
 ``--ontop``
     Makes the player window stay on top of other windows.
 
+    On Windows, if combined with fullscreen mode, this causes mpv to be
+    treated as exclusive fullscreen window that bypasses the Desktop Window
+    Manager.
+
 ``--border``, ``--no-border``
     Play video with window border and decorations. Since this is on by
     default, use ``--no-border`` to disable the standard window decorations.
@@ -2019,6 +2044,10 @@ Window
 
     This option might be removed in the future.
 
+``--x11-bypass-compositor=<yes|no>``
+    If set to ``yes`` (default), then ask the compositor to unredirect the
+    mpv window. This uses the ``_NET_WM_BYPASS_COMPOSITOR`` hint.
+
 
 Disc Devices
 ------------
@@ -2248,18 +2277,6 @@ Demuxer
     from the end of the file. The ``full`` mode actually traverses the entire
     file and can make a reliable estimate even without an index present (such
     as partial files).
-
-``--demuxer-mkv-fix-timestamps=<yes|no>``
-    Fix rounded Matroska timestamps (disabled by default). Matroska usually
-    stores timestamps rounded to milliseconds. This means timestamps jitter
-    by some amount around the intended timestamp. mpv can correct the timestamps
-    based on the framerate value stored in the file: the timestamp is rounded
-    to the next frame (according to the framerate), unless the new timestamp
-    would deviate more than 1ms from the old one. This should undo the rounding
-    done by the muxer.
-
-    (The allowed deviation can be less than 1ms if the file uses a non-standard
-    timecode scale.)
 
 ``--demuxer-rawaudio-channels=<value>``
     Number of channels (or channel layout) if ``--demuxer=rawaudio`` is used
@@ -2677,17 +2694,6 @@ OSD
     values are allowed.
 
     Default: 0.
-
-``--use-text-osd=<yes|no>``
-    Disable text OSD rendering completely. (This includes the complete OSC as
-    well.) This is mostly useful for avoiding loading fontconfig in situations
-    where fontconfig does not behave well, and OSD is unused - this could for
-    example allow GUI programs using libmpv to workaround fontconfig issues.
-
-    Note that selecting subtitles of any kind still initializes fontconfig.
-
-    Default: ``no``.
-
 
 Screenshot
 ----------
@@ -3479,6 +3485,11 @@ Miscellaneous
     :display-vdrop:     Drop or repeat video frames to compensate desyncing
                         video. (Although it should have the same effects as
                         ``audio``, the implementation is very different.)
+    :display-adrop:     Drop or repeat audio data to compensate desyncing
+                        video. See ``--video-sync-adrop-size``. This mode will
+                        cause severe audio artifacts if the real monitor
+                        refresh rate is too different from the reported or
+                        forced rate.
     :display-desync:    Sync video to display, and let audio play on its own.
     :desync:            Sync video according to system clock, and let audio play
                         on its own.
@@ -3509,6 +3520,13 @@ Miscellaneous
     the A/V desync cannot be compensated, too high values could lead to chaotic
     frame dropping due to the audio "overshooting" and skipping multiple video
     frames before the sync logic can react.
+
+``--video-sync-adrop-size=<value``
+    For the ``--video-sync=display-adrop`` mode. This mode duplicates/drops
+    audio data to keep audio in sync with video. To avoid audio artifacts on
+    jitter (which would add/remove samples all the time), this is done in
+    relatively large, fixed units, controlled by this option. The unit is
+    seconds.
 
 ``--mf-fps=<value>``
     Framerate used when decoding from multiple PNG or JPEG files with ``mf://``
