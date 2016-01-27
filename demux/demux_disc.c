@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <string.h>
@@ -23,6 +23,7 @@
 #include "common/msg.h"
 
 #include "stream/stream.h"
+#include "video/mp_image.h"
 #include "demux.h"
 #include "stheader.h"
 
@@ -53,9 +54,10 @@ struct priv {
 static void reselect_streams(demuxer_t *demuxer)
 {
     struct priv *p = demuxer->priv;
-    for (int n = 0; n < MPMIN(p->slave->num_streams, p->num_streams); n++) {
+    int num_slave = demux_get_num_stream(p->slave);
+    for (int n = 0; n < MPMIN(num_slave, p->num_streams); n++) {
         if (p->streams[n]) {
-            demuxer_select_track(p->slave, p->slave->streams[n],
+            demuxer_select_track(p->slave, demux_get_stream(p->slave, n),
                 demux_stream_is_selected(p->streams[n]));
         }
     }
@@ -80,11 +82,9 @@ static void add_dvd_streams(demuxer_t *demuxer)
     struct stream_dvd_info_req info;
     if (stream_control(stream, STREAM_CTRL_GET_DVD_INFO, &info) > 0) {
         for (int n = 0; n < MPMIN(32, info.num_subs); n++) {
-            struct sh_stream *sh = new_sh_stream(demuxer, STREAM_SUB);
-            if (!sh)
-                break;
+            struct sh_stream *sh = demux_alloc_sh_stream(STREAM_SUB);
             sh->demuxer_id = n + 0x20;
-            sh->codec = "dvd_subtitle";
+            sh->codec->codec = "dvd_subtitle";
             get_disc_lang(stream, sh);
             // p->streams _must_ match with p->slave->streams, so we can't add
             // it yet - it has to be done when the real stream appears, which
@@ -93,17 +93,16 @@ static void add_dvd_streams(demuxer_t *demuxer)
 
             // emulate the extradata
             struct mp_csp_params csp = MP_CSP_PARAMS_DEFAULTS;
-            csp.int_bits_in = 8;
-            csp.int_bits_out = 8;
             struct mp_cmat cmatrix;
-            mp_get_yuv2rgb_coeffs(&csp, &cmatrix);
+            mp_get_csp_matrix(&csp, &cmatrix);
 
             char *s = talloc_strdup(sh, "");
             s = talloc_asprintf_append(s, "palette: ");
             for (int i = 0; i < 16; i++) {
                 int color = info.palette[i];
-                int c[3] = {(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff};
-                mp_map_int_color(&cmatrix, 8, c);
+                int y[3] = {(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff};
+                int c[3];
+                mp_map_fixp_color(&cmatrix, 8, y, 8, c);
                 color = (c[2] << 16) | (c[1] << 8) | c[0];
 
                 if (i != 0)
@@ -112,8 +111,10 @@ static void add_dvd_streams(demuxer_t *demuxer)
             }
             s = talloc_asprintf_append(s, "\n");
 
-            sh->extradata = s;
-            sh->extradata_size = strlen(s);
+            sh->codec->extradata = s;
+            sh->codec->extradata_size = strlen(s);
+
+            demux_add_sh_stream(demuxer, sh);
         }
     }
 }
@@ -122,9 +123,9 @@ static void add_streams(demuxer_t *demuxer)
 {
     struct priv *p = demuxer->priv;
 
-    for (int n = p->num_streams; n < p->slave->num_streams; n++) {
-        struct sh_stream *src = p->slave->streams[n];
-        if (src->sub) {
+    for (int n = p->num_streams; n < demux_get_num_stream(p->slave); n++) {
+        struct sh_stream *src = demux_get_stream(p->slave, n);
+        if (src->type == STREAM_SUB) {
             struct sh_stream *sub = NULL;
             if (src->demuxer_id >= 0x20 && src->demuxer_id <= 0x3F)
                 sub = p->dvd_subs[src->demuxer_id - 0x20];
@@ -134,25 +135,26 @@ static void add_streams(demuxer_t *demuxer)
                 continue;
             }
         }
-        struct sh_stream *sh = new_sh_stream(demuxer, src->type);
-        if (!sh)
-            break;
+        struct sh_stream *sh = demux_alloc_sh_stream(src->type);
         assert(p->num_streams == n); // directly mapped
         MP_TARRAY_APPEND(p, p->streams, p->num_streams, sh);
         // Copy all stream fields that might be relevant
-        sh->codec = talloc_strdup(sh, src->codec);
-        sh->codec_tag = src->codec_tag;
-        sh->lav_headers = src->lav_headers;
+        *sh->codec = *src->codec;
         sh->demuxer_id = src->demuxer_id;
-        if (src->video) {
+        if (src->type == STREAM_VIDEO) {
             double ar;
             if (stream_control(demuxer->stream, STREAM_CTRL_GET_ASPECT_RATIO, &ar)
                                 == STREAM_OK)
-                sh->video->aspect = ar;
+            {
+                struct mp_image_params f = {.w = src->codec->disp_w,
+                                            .h = src->codec->disp_h};
+                mp_image_params_set_dsize(&f, 1728 * ar, 1728);
+                sh->codec->par_w = f.p_w;
+                sh->codec->par_h = f.p_h;
+            }
         }
-        if (src->audio)
-            sh->audio = src->audio;
         get_disc_lang(demuxer->stream, sh);
+        demux_add_sh_stream(demuxer, sh);
     }
     reselect_streams(demuxer);
 }

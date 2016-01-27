@@ -10,6 +10,11 @@ from waftools.checks.custom import *
 
 build_options = [
     {
+        'name': '--gpl3',
+        'desc': 'GPL3 license',
+        'default': 'disable',
+        'func': check_true
+    }, {
         'name': '--cplayer',
         'desc': 'mpv CLI player',
         'default': 'enable',
@@ -49,6 +54,11 @@ build_options = [
         'name': '--manpage-build',
         'desc': 'manpage generation',
         'func': check_ctx_vars('RST2MAN')
+    }, {
+        'name': '--html-build',
+        'desc': 'html manual generation',
+        'func': check_ctx_vars('RST2HTML'),
+        'default': 'disable',
     }, {
         'name': '--pdf-build',
         'desc': 'pdf manual generation',
@@ -130,14 +140,13 @@ main_dependencies = [
         'name': 'win32',
         'desc': 'win32',
         'deps_any': [ 'os-win32', 'os-cygwin' ],
-        'func': check_cc(lib=['winmm', 'gdi32', 'ole32', 'uuid', 'avrt']),
+        'func': check_cc(lib=['winmm', 'gdi32', 'ole32', 'uuid', 'avrt', 'dwmapi']),
     }, {
         'name': '--win32-internal-pthreads',
         'desc': 'internal pthread wrapper for win32 (Vista+)',
         'deps_neg': [ 'posix' ],
         'deps': [ 'win32' ],
         'func': check_true,
-        'default': 'disable',
     }, {
         'name': 'pthreads',
         'desc': 'POSIX threads',
@@ -194,12 +203,6 @@ iconv support use --disable-iconv.",
         'desc': 'w32/dos paths',
         'deps_any': [ 'os-win32', 'os-cygwin' ],
         'func': check_true
-    }, {
-        'name': '--waio',
-        'desc': 'libwaio for win32',
-        'deps': [ 'os-win32', 'mingw' ],
-        'func': check_libs(['waio'],
-                    check_statement('waio/waio.h', 'waio_alloc(0, 0, 0, 0)')),
     }, {
         'name': '--termios',
         'desc': 'termios',
@@ -474,6 +477,12 @@ FFmpeg/Libav libraries. You need at least {0}. Aborting.".format(libav_versions_
         'func': check_statement('libavcodec/avcodec.h',
                                 'AVSubtitleRect r = {.linesize={0}}',
                                 use='libav'),
+    }, {
+        'name': 'avcodec-profile-name',
+        'desc': 'libavcodec avcodec_profile_name()',
+        'func': check_statement('libavcodec/avcodec.h',
+                                'avcodec_profile_name(0,0)',
+                                use='libav'),
     },
 ]
 
@@ -556,10 +565,6 @@ audio_output_features = [
         'func': check_cc(
             fragment=load_fragment('coreaudio.c'),
             framework_name=['CoreFoundation', 'CoreAudio', 'AudioUnit', 'AudioToolbox'])
-    }, {
-        'name': '--dsound',
-        'desc': 'DirectSound audio output',
-        'func': check_cc(header_name='dsound.h'),
     }, {
         'name': '--wasapi',
         'desc': 'WASAPI audio output',
@@ -659,6 +664,14 @@ video_output_features = [
         'func': check_statement('windows.h', 'wglCreateContext(0)',
                                 lib='opengl32')
     } , {
+        'name': '--gl-dxinterop',
+        'desc': 'OpenGL/DirectX Interop Backend',
+        'deps': [ 'gl-win32' ],
+        'groups': [ 'gl' ],
+        'func': compose_checks(
+            check_statement(['GL/gl.h', 'GL/wglext.h'], 'int i = WGL_ACCESS_WRITE_DISCARD_NV'),
+            check_statement('d3d9.h', 'IDirect3D9Ex *d'))
+    } , {
         'name': '--egl-angle',
         'desc': 'OpenGL Win32 ANGLE Backend',
         'deps_any': [ 'os-win32', 'os-cygwin' ],
@@ -692,7 +705,11 @@ video_output_features = [
         'desc': 'VAAPI (Wayland support)',
         'deps': [ 'vaapi', 'gl-wayland' ],
         'func': check_pkg_config('libva-wayland', '>= 0.36.0'),
-
+    }, {
+        'name': '--vaapi-drm',
+        'desc': 'VAAPI (DRM/EGL support)',
+        'deps': [ 'vaapi', 'egl-drm' ],
+        'func': check_pkg_config('libva-drm', '>= 0.36.0'),
     }, {
         'name': '--vaapi-glx',
         'desc': 'VAAPI GLX',
@@ -706,7 +723,6 @@ video_output_features = [
     }, {
         'name': 'vaapi-egl',
         'desc': 'VAAPI EGL',
-        'deps': [ 'c11-tls' ], # indirectly
         'deps_any': [ 'vaapi-x-egl', 'vaapi-wayland' ],
         'func': check_true,
     }, {
@@ -748,7 +764,12 @@ video_output_features = [
     } , {
         'name': '--gl',
         'desc': 'OpenGL video outputs',
-        'deps_any': [ 'gl-cocoa', 'gl-x11', 'egl-drm', 'gl-win32', 'gl-wayland', 'rpi' ],
+        'deps_any': [ 'gl-cocoa', 'gl-x11', 'egl-x11', 'egl-drm', 'gl-win32', 'gl-wayland', 'rpi' ],
+        'func': check_true
+    }, {
+        'name': 'egl-helpers',
+        'desc': 'EGL helper functions',
+        'deps_any': [ 'egl-x11' ],
         'func': check_true
     }
 ]
@@ -819,11 +840,6 @@ radio_and_tv_features = [
         'func': check_pkg_config('libv4l2'),
         'deps': [ 'tv-v4l2' ],
     }, {
-        'name': '--pvr',
-        'desc': 'Video4Linux2 MPEG PVR interface',
-        'deps': [ 'tv' ],
-        'func': check_cc(fragment=load_fragment('pvr.c')),
-    }, {
         'name': '--audio-input',
         'desc': 'audio input support',
         'deps_any': [ 'tv-v4l2' ],
@@ -860,6 +876,8 @@ _INSTALL_DIRS_LIST = [
     ('mandir',  '${DATADIR}/man',     'man pages '),
     ('docdir',  '${DATADIR}/doc/mpv', 'documentation files'),
     ('zshdir',  '${DATADIR}/zsh/site-functions', 'zsh completion functions'),
+
+    ('confloaddir', '${CONFDIR}', 'configuration files load directory'),
 ]
 
 def options(opt):
@@ -893,7 +911,7 @@ def options(opt):
     group.add_option('--lua',
         type    = 'string',
         dest    = 'LUA_VER',
-        help    = "select Lua package which should be autodetected. Choices: 51 51deb 51fbsd 52 52deb 52arch 52fbsd luajit")
+        help    = "select Lua package which should be autodetected. Choices: 51 51deb 51obsd 51fbsd 52 52deb 52arch 52fbsd luajit")
 
 @conf
 def is_optimization(ctx):
@@ -919,6 +937,7 @@ def configure(ctx):
     ctx.find_program(pkg_config,  var='PKG_CONFIG')
     ctx.find_program(ar,          var='AR')
     ctx.find_program('perl',      var='BIN_PERL')
+    ctx.find_program('rst2html',  var='RST2HTML',  mandatory=False)
     ctx.find_program('rst2man',   var='RST2MAN',   mandatory=False)
     ctx.find_program('rst2pdf',   var='RST2PDF',   mandatory=False)
     ctx.find_program(windres,     var='WINDRES',   mandatory=False)

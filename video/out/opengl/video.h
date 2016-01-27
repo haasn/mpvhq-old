@@ -1,19 +1,20 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #ifndef MP_GL_VIDEO_H
 #define MP_GL_VIDEO_H
 
@@ -62,6 +63,7 @@ struct scaler {
     GLenum gl_target;
     struct fbotex sep_fbo;
     bool insufficient;
+    int lut_size;
 
     // kernel points here
     struct filter_kernel kernel_storage;
@@ -70,6 +72,7 @@ struct scaler {
 struct gl_video_opts {
     int dumb_mode;
     struct scaler_config scaler[4];
+    int scaler_lut_size;
     float gamma;
     int gamma_auto;
     int target_prim;
@@ -80,6 +83,7 @@ struct gl_video_opts {
     float sigmoid_center;
     float sigmoid_slope;
     int scaler_resizes_only;
+    int tscale_interpolates_only;
     int pbo;
     int dither_depth;
     int dither_algo;

@@ -21,6 +21,7 @@
 #include <assert.h>
 
 #include "common/common.h"
+#include "common/global.h"
 #include "common/msg.h"
 #include "common/msg_control.h"
 #include "input/input.h"
@@ -137,6 +138,7 @@ void mp_clients_init(struct MPContext *mpctx)
     *mpctx->clients = (struct mp_client_api) {
         .mpctx = mpctx,
     };
+    mpctx->global->client_api = mpctx->clients;
     pthread_mutex_init(&mpctx->clients->lock, NULL);
 }
 
@@ -262,6 +264,11 @@ struct mp_log *mp_client_get_log(struct mpv_handle *ctx)
 struct MPContext *mp_client_get_core(struct mpv_handle *ctx)
 {
     return ctx->mpctx;
+}
+
+struct MPContext *mp_client_api_get_core(struct mp_client_api *api)
+{
+    return api->mpctx;
 }
 
 static void wakeup_client(struct mpv_handle *ctx)
@@ -710,6 +717,8 @@ int mp_client_send_event_dup(struct MPContext *mpctx, const char *client_name,
 int mpv_request_event(mpv_handle *ctx, mpv_event_id event, int enable)
 {
     if (!mpv_event_name(event) || enable < 0 || enable > 1)
+        return MPV_ERROR_INVALID_PARAMETER;
+    if (event == MPV_EVENT_SHUTDOWN && !enable)
         return MPV_ERROR_INVALID_PARAMETER;
     assert(event < (int)INTERNAL_EVENT_BASE); // excluded above; they have no name
     pthread_mutex_lock(&ctx->lock);

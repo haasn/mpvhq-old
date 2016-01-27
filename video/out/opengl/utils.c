@@ -2,23 +2,18 @@
  * This file is part of mpv.
  * Parts based on MPlayer code by Reimar Döffinger.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
- *
- * You can alternatively redistribute this file and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stddef.h>
@@ -675,6 +670,15 @@ void gl_sc_uniform_sampler(struct gl_shader_cache *sc, char *name, GLenum target
     u->v.i[0] = unit;
 }
 
+void gl_sc_uniform_sampler_ui(struct gl_shader_cache *sc, char *name, int unit)
+{
+    struct sc_uniform *u = find_uniform(sc, name);
+    u->type = UT_i;
+    u->size = 1;
+    u->glsl_type = "usampler2D";
+    u->v.i[0] = unit;
+}
+
 void gl_sc_uniform_f(struct gl_shader_cache *sc, char *name, GLfloat f)
 {
     struct sc_uniform *u = find_uniform(sc, name);
@@ -960,6 +964,11 @@ void gl_sc_gen_shader_and_reset(struct gl_shader_cache *sc)
         else
             ADD(frag, "uniform %s %s;\n", u->glsl_type, u->name);
     }
+
+    // Additional helpers.
+    ADD(frag, "#define LUT_POS(x, lut_size)"
+              " mix(0.5 / (lut_size), 1.0 - 0.5 / (lut_size), (x))\n");
+
     // custom shader header
     if (sc->header_text[0]) {
         ADD(frag, "// header\n");

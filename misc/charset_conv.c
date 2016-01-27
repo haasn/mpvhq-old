@@ -5,18 +5,18 @@
  * of MPlayer (GPL).
  * Copyright (C) 2006 Evgeniy Stepanov <eugeni.stepanov@gmail.com>
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -50,6 +50,13 @@ bool mp_charset_is_utf8(const char *user_cp)
 {
     return user_cp && (strcasecmp(user_cp, "utf8") == 0 ||
                        strcasecmp(user_cp, "utf-8") == 0);
+}
+
+bool mp_charset_is_utf16(const char *user_cp)
+{
+    bstr s = bstr0(user_cp);
+    return bstr_case_startswith(s, bstr0("utf16")) ||
+           bstr_case_startswith(s, bstr0("utf-16"));
 }
 
 // Split the string on ':' into components.
@@ -179,6 +186,8 @@ static const char *mp_uchardet(void *talloc_ctx, struct mp_log *log, bstr buf)
             iconv_close(icdsc);
         }
     }
+    if (!res && bstr_validate_utf8(buf) >= 0)
+        res = "utf-8";
     uchardet_delete(det);
     return res;
 }

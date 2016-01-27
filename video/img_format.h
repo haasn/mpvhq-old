@@ -67,8 +67,13 @@
 #define MP_IMGFLAG_HWACCEL 0x10000
 // Set if the chroma resolution is lower than luma resolution. Unset for non-YUV.
 #define MP_IMGFLAG_SUBSAMPLED 0x20000
-// Like MP_IMGFLAG_YUV_P, but RGB. The planes are organized as in IMGFMT_GBRP.
+// Like MP_IMGFLAG_YUV_P, but RGB. This can be e.g. AV_PIX_FMT_GBRP. The planes
+// are always shuffled (G - B - R [- A]).
 #define MP_IMGFLAG_RGB_P 0x40000
+// Semi-planar YUV formats, like AV_PIX_FMT_NV12.
+// The flag MP_IMGFLAG_YUV_NV_SWAP is set for AV_PIX_FMT_NV21.
+#define MP_IMGFLAG_YUV_NV 0x80000
+#define MP_IMGFLAG_YUV_NV_SWAP 0x100000
 
 // Exactly one of these bits is set in mp_imgfmt_desc.flags
 #define MP_IMGFLAG_COLOR_CLASS_MASK \
@@ -86,6 +91,8 @@ struct mp_imgfmt_desc {
     int8_t bpp[MP_MAX_PLANES];   // bits per pixel
     int8_t plane_bits;           // number of bits in use for plane 0
     int8_t component_bits;       // number of bits per component (0 if uneven)
+    int8_t component_full_bits;  // number of bits per component including
+                                 // internal padding (0 if uneven)
     // chroma shifts per plane (provided for convenience with planar formats)
     int8_t xs[MP_MAX_PLANES];
     int8_t ys[MP_MAX_PLANES];
@@ -171,30 +178,12 @@ enum mp_imgfmt {
     IMGFMT_RGB0_START = IMGFMT_0RGB,
     IMGFMT_RGB0_END = IMGFMT_RGB0,
 
-    // Accessed with bit-shifts (components ordered from MSB to LSB)
-    IMGFMT_BGR8,                // r3 g3 b2
-    IMGFMT_RGB8,
-    IMGFMT_BGR4_BYTE,           // r1 g2 b1 with 1 pixel per byte
-    IMGFMT_RGB4_BYTE,
-    IMGFMT_BGR4,                // r1 g2 b1, bit-packed
-    IMGFMT_RGB4,
-    IMGFMT_MONO,                // 1 bit per pixel, bit-packed
-    IMGFMT_MONO_W,              // like IMGFMT_MONO, but inverted (white pixels)
-
     // Accessed with bit-shifts after endian-swapping the uint16_t pixel
-    IMGFMT_RGB444,              // 4r 4g 4b 4a  (MSB to LSB)
-    IMGFMT_RGB555,              // 5r 5g 5b 1a
-    IMGFMT_RGB565,              // 5r 6g 5b
-    IMGFMT_BGR444,              // 4b 4r 4g 4a
-    IMGFMT_BGR555,              // 5b 5g 5r 1a
-    IMGFMT_BGR565,              // 5b 6g 5r
+    IMGFMT_RGB565,              // 5r 6g 5b (MSB to LSB)
 
     // The first plane has 1 byte per pixel. The second plane is a palette with
     // 256 entries, with each entry encoded like in IMGFMT_BGR32.
     IMGFMT_PAL8,
-
-    // Planar RGB (planes are shuffled: plane 0 is G, etc.)
-    IMGFMT_GBRP,
 
     // XYZ colorspace, similar organization to RGB48. Even though it says "12",
     // the components are stored as 16 bit, with lower 4 bits set to 0.
@@ -243,7 +232,7 @@ char **mp_imgfmt_name_list(void);
 
 #define vo_format_name mp_imgfmt_to_name
 
-int mp_imgfmt_find_yuv_planar(int xs, int ys, int planes, int component_bits);
+int mp_imgfmt_find(int xs, int ys, int planes, int component_bits, int flags);
 
 int mp_imgfmt_select_best(int dst1, int dst2, int src);
 

@@ -27,7 +27,7 @@
 #include <libavutil/intreadwrite.h>
 #include <libavutil/pixdesc.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 #include "config.h"
 #include "common/msg.h"
 #include "options/options.h"
@@ -41,6 +41,7 @@
 #include "video/img_format.h"
 #include "video/filter/vf.h"
 #include "video/decode/dec_video.h"
+#include "demux/demux.h"
 #include "demux/stheader.h"
 #include "demux/packet.h"
 #include "video/csputils.h"
@@ -352,6 +353,7 @@ static void init_avctx(struct dec_video *vd, const char *decoder,
     struct vd_lavc_params *lavc_param = vd->opts->vd_lavc_params;
     bool mp_rawvideo = false;
     struct sh_stream *sh = vd->header;
+    struct mp_codec_params *c = sh->codec;
 
     assert(!ctx->avctx);
 
@@ -389,6 +391,10 @@ static void init_avctx(struct dec_video *vd, const char *decoder,
             avctx->get_buffer2 = get_buffer2_hwdec;
         if (ctx->hwdec->init(ctx) < 0)
             goto error;
+        // This can increase efficiency by not blocking on the hardware
+        // pipeline by reading back immediately after decoding.
+        if (ctx->hwdec->process_image)
+            ctx->max_delay_queue = HWDEC_DELAY_QUEUE_COUNT;
     } else {
         mp_set_avcodec_threads(vd->log, avctx, lavc_param->threads);
     }
@@ -414,23 +420,23 @@ static void init_avctx(struct dec_video *vd, const char *decoder,
     // Do this after the above avopt handling in case it changes values
     ctx->skip_frame = avctx->skip_frame;
 
-    avctx->codec_tag = sh->codec_tag;
-    avctx->coded_width  = sh->video->disp_w;
-    avctx->coded_height = sh->video->disp_h;
-    avctx->bits_per_coded_sample = sh->video->bits_per_coded_sample;
+    avctx->codec_tag = c->codec_tag;
+    avctx->coded_width  = c->disp_w;
+    avctx->coded_height = c->disp_h;
+    avctx->bits_per_coded_sample = c->bits_per_coded_sample;
 
-    mp_lavc_set_extradata(avctx, sh->extradata, sh->extradata_size);
+    mp_lavc_set_extradata(avctx, c->extradata, c->extradata_size);
 
     if (mp_rawvideo) {
-        avctx->pix_fmt = imgfmt2pixfmt(sh->codec_tag);
+        avctx->pix_fmt = imgfmt2pixfmt(c->codec_tag);
         avctx->codec_tag = 0;
-        if (avctx->pix_fmt == AV_PIX_FMT_NONE && sh->codec_tag)
+        if (avctx->pix_fmt == AV_PIX_FMT_NONE && c->codec_tag)
             MP_ERR(vd, "Image format %s not supported by lavc.\n",
-                   mp_imgfmt_to_name(sh->codec_tag));
+                   mp_imgfmt_to_name(c->codec_tag));
     }
 
-    if (sh->lav_headers)
-        mp_copy_lav_codec_headers(avctx, sh->lav_headers);
+    if (c->lav_headers)
+        mp_copy_lav_codec_headers(avctx, c->lav_headers);
 
     /* open it */
     if (avcodec_open2(avctx, lavc_codec, NULL) < 0)
@@ -450,6 +456,17 @@ static void reset_avctx(struct dec_video *vd)
     if (ctx->avctx)
         avcodec_flush_buffers(ctx->avctx);
     ctx->flushing = false;
+}
+
+static void flush_all(struct dec_video *vd)
+{
+    vd_ffmpeg_ctx *ctx = vd->priv;
+
+    for (int n = 0; n < ctx->num_delay_queue; n++)
+        talloc_free(ctx->delay_queue[n]);
+    ctx->num_delay_queue = 0;
+
+    reset_avctx(vd);
 }
 
 static void uninit_avctx(struct dec_video *vd)
@@ -472,9 +489,11 @@ static void uninit_avctx(struct dec_video *vd)
 
     av_frame_free(&ctx->pic);
 
-    ctx->flushing = false;
+    flush_all(vd);
+
     ctx->hwdec_failed = false;
     ctx->hwdec_fail_count = 0;
+    ctx->max_delay_queue = 0;
 }
 
 static void update_image_params(struct dec_video *vd, AVFrame *frame,
@@ -484,7 +503,6 @@ static void update_image_params(struct dec_video *vd, AVFrame *frame,
     struct MPOpts *opts = ctx->opts;
     int width = frame->width;
     int height = frame->height;
-    float aspect = av_q2d(frame->sample_aspect_ratio) * width / height;
     int pix_fmt = frame->format;
 
     if (pix_fmt != ctx->pix_fmt) {
@@ -499,20 +517,17 @@ static void update_image_params(struct dec_video *vd, AVFrame *frame,
         .imgfmt = ctx->best_csp,
         .w = width,
         .h = height,
-        .d_w = 0,
-        .d_h = 0,
+        .p_w = frame->sample_aspect_ratio.num,
+        .p_h = frame->sample_aspect_ratio.den,
         .colorspace = avcol_spc_to_mp_csp(ctx->avctx->colorspace),
         .colorlevels = avcol_range_to_mp_csp_levels(ctx->avctx->color_range),
         .primaries = avcol_pri_to_mp_csp_prim(ctx->avctx->color_primaries),
         .gamma = avcol_trc_to_mp_csp_trc(ctx->avctx->color_trc),
         .chroma_location =
             avchroma_location_to_mp(ctx->avctx->chroma_sample_location),
-        .rotate = vd->header->video->rotate,
-        .stereo_in = vd->header->video->stereo_mode,
+        .rotate = vd->header->codec->rotate,
+        .stereo_in = vd->header->codec->stereo_mode,
     };
-
-    if (aspect > 0)
-        vf_set_dar(&out_params->d_w, &out_params->d_h, width, height, aspect);
 
     if (opts->video_rotate < 0) {
         out_params->rotate = 0;
@@ -532,6 +547,12 @@ static enum AVPixelFormat get_format_hwdec(struct AVCodecContext *avctx,
     for (int i = 0; fmt[i] != AV_PIX_FMT_NONE; i++)
         MP_VERBOSE(vd, " %s", av_get_pix_fmt_name(fmt[i]));
     MP_VERBOSE(vd, "\n");
+
+#if HAVE_AVCODEC_PROFILE_NAME
+    const char *profile = avcodec_profile_name(avctx->codec_id, avctx->profile);
+    MP_VERBOSE(vd, "Codec profile: %s (0x%x)\n", profile ? profile : "unknown",
+               avctx->profile);
+#endif
 
     assert(ctx->hwdec);
 
@@ -614,6 +635,22 @@ static int get_buffer2_hwdec(AVCodecContext *avctx, AVFrame *pic, int flags)
     return 0;
 }
 
+static struct mp_image *read_output(struct dec_video *vd)
+{
+    vd_ffmpeg_ctx *ctx = vd->priv;
+
+    if (!ctx->num_delay_queue)
+        return NULL;
+
+    struct mp_image *res = ctx->delay_queue[0];
+    MP_TARRAY_REMOVE_AT(ctx->delay_queue, ctx->num_delay_queue, 0);
+
+    if (ctx->hwdec && ctx->hwdec->process_image)
+        res = ctx->hwdec->process_image(ctx, res);
+
+    return mp_img_swap_to_native(res);
+}
+
 static void decode(struct dec_video *vd, struct demux_packet *packet,
                    int flags, struct mp_image **out_image)
 {
@@ -623,6 +660,9 @@ static void decode(struct dec_video *vd, struct demux_packet *packet,
     AVCodecContext *avctx = ctx->avctx;
     struct vd_lavc_params *opts = ctx->opts->vd_lavc_params;
     AVPacket pkt;
+
+    if (!avctx)
+        return;
 
     if (flags) {
         // hr-seek framedrop vs. normal framedrop
@@ -664,27 +704,42 @@ static void decode(struct dec_video *vd, struct demux_packet *packet,
     }
 
     // Skipped frame, or delayed output due to multithreaded decoding.
-    if (!got_picture)
+    if (!got_picture) {
+        if (!packet)
+            *out_image = read_output(vd);
         return;
+    }
 
     ctx->hwdec_fail_count = 0;
 
-    struct mp_image_params params;
-    update_image_params(vd, ctx->pic, &params);
-    vd->codec_pts = mp_pts_from_av(ctx->pic->pkt_pts, NULL);
-    vd->codec_dts = mp_pts_from_av(ctx->pic->pkt_dts, NULL);
+    AVFrameSideData *sd = NULL;
+    sd = av_frame_get_side_data(ctx->pic, AV_FRAME_DATA_A53_CC);
+    if (sd) {
+        struct demux_packet *cc = new_demux_packet_from(sd->data, sd->size);
+        cc->pts = vd->codec_pts;
+        cc->dts = vd->codec_dts;
+        cc->pos = -1;
+        demuxer_feed_caption(vd->header, cc);
+    }
 
     struct mp_image *mpi = mp_image_from_av_frame(ctx->pic);
-    av_frame_unref(ctx->pic);
-    if (!mpi)
+    if (!mpi) {
+        av_frame_unref(ctx->pic);
         return;
+    }
     assert(mpi->planes[0] || mpi->planes[3]);
+    mpi->pts = mp_pts_from_av(ctx->pic->pkt_pts, NULL);
+    mpi->dts = mp_pts_from_av(ctx->pic->pkt_dts, NULL);
+
+    struct mp_image_params params;
+    update_image_params(vd, ctx->pic, &params);
     mp_image_set_params(mpi, &params);
 
-    if (ctx->hwdec && ctx->hwdec->process_image)
-        mpi = ctx->hwdec->process_image(ctx, mpi);
+    av_frame_unref(ctx->pic);
 
-    *out_image = mp_img_swap_to_native(mpi);
+    MP_TARRAY_APPEND(ctx, ctx->delay_queue, ctx->num_delay_queue, mpi);
+    if (ctx->num_delay_queue > ctx->max_delay_queue)
+        *out_image = read_output(vd);
 }
 
 static struct mp_image *decode_with_fallback(struct dec_video *vd,
@@ -720,8 +775,21 @@ static int control(struct dec_video *vd, int cmd, void *arg)
     vd_ffmpeg_ctx *ctx = vd->priv;
     switch (cmd) {
     case VDCTRL_RESET:
-        reset_avctx(vd);
+        flush_all(vd);
         return CONTROL_TRUE;
+    case VDCTRL_QUERY_UNSEEN_FRAMES: {
+        AVCodecContext *avctx = ctx->avctx;
+        if (!avctx)
+            break;
+        if (ctx->hwdec && ctx->hwdec->type == HWDEC_RPI)
+            break; // MMAL has arbitrary buffering, thus unknown
+        int delay = avctx->has_b_frames;
+        assert(delay >= 0);
+        if (avctx->active_thread_type & FF_THREAD_FRAME)
+            delay += avctx->thread_count - 1;
+        *(int *)arg = delay;
+        return CONTROL_TRUE;
+    }
     case VDCTRL_GET_HWDEC: {
         int hwdec = ctx->hwdec ? ctx->hwdec->type : 0;
         if (!ctx->software_fallback_decoder)

@@ -40,8 +40,62 @@
 #include "dvb_tune.h"
 #include "common/msg.h"
 
-int dvb_get_tuner_type(int fe_fd, struct mp_log *log)
+int dvb_get_tuner_types(int fe_fd, struct mp_log *log, int** tuner_types)
 {
+#ifdef DVB_USE_S2API
+    /* S2API is the DVB API new since 2.6.28.
+       It allows to query frontends with multiple delivery systems. */
+    struct dtv_property p[] = {{ .cmd = DTV_ENUM_DELSYS }};
+    struct dtv_properties cmdseq = {.num = 1, .props = p};
+    mp_verbose(log, "Querying tuner type via DVBv5 API for frontend FD %d\n",
+               fe_fd);
+    if ((ioctl(fe_fd, FE_GET_PROPERTY, &cmdseq)) < -0) {
+      mp_err(log, "FE_GET_PROPERTY error: %d, FD: %d\n\n", errno, fe_fd);
+      return 0;
+    }
+    int num_tuner_types = p[0].u.buffer.len;
+    mp_verbose(log, "Number of supported delivery systems: %d\n", num_tuner_types);
+    if (num_tuner_types == 0) {
+      mp_err(log, "Frontend FD %d returned no delivery systems!", fe_fd);
+      return 0;
+    }
+    (*tuner_types) = talloc_array(NULL, int, num_tuner_types);
+    int supported_tuners = 0;
+    for(;p[0].u.buffer.len > 0; p[0].u.buffer.len--) {
+      fe_delivery_system_t delsys = p[0].u.buffer.data[p[0].u.buffer.len - 1];
+      /* Second level standards like like DVB-T2, DVB-S2 not treated here -
+         Cards can usually either only do S/T/C or both levels.
+         DVB-T2 probably needs more implementation details,
+         DVB-S2 is treated in the DVB-S branch already. */
+      switch (delsys) {
+      case SYS_DVBT:
+        mp_verbose(log, "Tuner type seems to be DVB-T\n");
+        (*tuner_types)[supported_tuners++] = TUNER_TER;
+        break;
+      case SYS_DVBC_ANNEX_AC:
+        mp_verbose(log, "Tuner type seems to be DVB-C\n");
+        (*tuner_types)[supported_tuners++] = TUNER_CBL;
+        break;
+      case SYS_DVBS:
+        mp_verbose(log, "Tuner type seems to be DVB-S\n");
+        (*tuner_types)[supported_tuners++] = TUNER_SAT;
+        break;
+#ifdef DVB_ATSC
+      case SYS_ATSC:
+        mp_verbose(log, "Tuner type seems to be DVB-ATSC\n");
+        (*tuner_types)[supported_tuners++] = TUNER_ATSC;
+        break;
+#endif
+      case SYS_DVBS2:
+        // We actually handle that in the DVB-S branch, ok to ignore here.
+        mp_verbose(log, "Tuner supports DVB-S2\n");
+        break;
+      default:
+        mp_err(log, "Unhandled tuner type: %d\n", delsys);
+      }
+    }
+    return supported_tuners;
+#else
     struct dvb_frontend_info fe_info;
     int res = ioctl(fe_fd, FE_GET_INFO, &fe_info);
     if (res < 0) {
@@ -49,29 +103,36 @@ int dvb_get_tuner_type(int fe_fd, struct mp_log *log)
         return 0;
     }
 
+    mp_verbose(log, "Queried tuner type of device named '%s', FD: %d\n",
+               fe_info.name, fe_fd);
     switch (fe_info.type) {
     case FE_OFDM:
-        mp_verbose(log, "TUNER TYPE SEEMS TO BE DVB-T\n");
-        return TUNER_TER;
-
+        mp_verbose(log, "Tuner type seems to be DVB-T\n");
+        *tuner_types = talloc_array(NULL, int, 1);
+        (*tuner_types)[0] = TUNER_TER;
+        return 1;
     case FE_QPSK:
-        mp_verbose(log, "TUNER TYPE SEEMS TO BE DVB-S\n");
-        return TUNER_SAT;
-
+        mp_verbose(log, "Tuner type seems to be DVB-S\n");
+        *tuner_types = talloc_array(NULL, int, 1);
+        (*tuner_types)[0] = TUNER_SAT;
+        return 1;
     case FE_QAM:
-        mp_verbose(log, "TUNER TYPE SEEMS TO BE DVB-C\n");
-        return TUNER_CBL;
-
+        mp_verbose(log, "Tuner type seems to be DVB-C\n");
+        *tuner_types = talloc_array(NULL, int, 1);
+        (*tuner_types)[0] = TUNER_CBL;
+        return 1;
 #ifdef DVB_ATSC
     case FE_ATSC:
-        mp_verbose(log, "TUNER TYPE SEEMS TO BE DVB-ATSC\n");
-        return TUNER_ATSC;
+        mp_verbose(log, "Tuner type seems to be DVB-ATSC\n");
+        *tuner_types = talloc_array(NULL, int, 1);
+        (*tuner_types)[0] = TUNER_ATSC;
+        return 1;
 #endif
     default:
-        mp_err(log, "UNKNOWN TUNER TYPE\n");
+        mp_err(log, "Unknown tuner type: %d\n", fe_info.type);
         return 0;
     }
-
+#endif
 }
 
 int dvb_open_devices(dvb_priv_t *priv, int n, int demux_cnt)
@@ -79,32 +140,34 @@ int dvb_open_devices(dvb_priv_t *priv, int n, int demux_cnt)
     int i;
     char frontend_dev[32], dvr_dev[32], demux_dev[32];
 
+    dvb_state_t* state = priv->state;
+
     sprintf(frontend_dev, "/dev/dvb/adapter%d/frontend0", n);
     sprintf(dvr_dev, "/dev/dvb/adapter%d/dvr0", n);
     sprintf(demux_dev, "/dev/dvb/adapter%d/demux0", n);
-    priv->fe_fd = open(frontend_dev, O_RDWR | O_NONBLOCK | O_CLOEXEC);
-    if (priv->fe_fd < 0) {
+    state->fe_fd = open(frontend_dev, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    if (state->fe_fd < 0) {
         MP_ERR(priv, "ERROR OPENING FRONTEND DEVICE %s: ERRNO %d\n",
                frontend_dev, errno);
         return 0;
     }
-    priv->demux_fds_cnt = 0;
+    state->demux_fds_cnt = 0;
     MP_VERBOSE(priv, "DVB_OPEN_DEVICES(%d)\n", demux_cnt);
     for (i = 0; i < demux_cnt; i++) {
-        priv->demux_fds[i] = open(demux_dev, O_RDWR | O_NONBLOCK | O_CLOEXEC);
-        if (priv->demux_fds[i] < 0) {
+        state->demux_fds[i] = open(demux_dev, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+        if (state->demux_fds[i] < 0) {
             MP_ERR(priv, "ERROR OPENING DEMUX 0: %d\n", errno);
             return 0;
         } else {
             MP_VERBOSE(priv, "OPEN(%d), file %s: FD=%d, CNT=%d\n", i, demux_dev,
-                       priv->demux_fds[i], priv->demux_fds_cnt);
-            priv->demux_fds_cnt++;
+                       state->demux_fds[i], state->demux_fds_cnt);
+            state->demux_fds_cnt++;
         }
     }
 
 
-    priv->dvr_fd = open(dvr_dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    if (priv->dvr_fd < 0) {
+    state->dvr_fd = open(dvr_dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (state->dvr_fd < 0) {
         MP_ERR(priv, "ERROR OPENING DVR DEVICE %s: %d\n", dvr_dev, errno);
         return 0;
     }
@@ -118,24 +181,26 @@ int dvb_fix_demuxes(dvb_priv_t *priv, int cnt)
     int i;
     char demux_dev[32];
 
-    sprintf(demux_dev, "/dev/dvb/adapter%d/demux0", priv->card);
-    MP_VERBOSE(priv, "FIX %d -> %d\n", priv->demux_fds_cnt, cnt);
-    if (priv->demux_fds_cnt >= cnt) {
-        for (i = priv->demux_fds_cnt - 1; i >= cnt; i--) {
-            MP_VERBOSE(priv, "FIX, CLOSE fd(%d): %d\n", i, priv->demux_fds[i]);
-            close(priv->demux_fds[i]);
+    dvb_state_t* state = priv->state;
+
+    sprintf(demux_dev, "/dev/dvb/adapter%d/demux0", state->card);
+    MP_VERBOSE(priv, "FIX %d -> %d\n", state->demux_fds_cnt, cnt);
+    if (state->demux_fds_cnt >= cnt) {
+        for (i = state->demux_fds_cnt - 1; i >= cnt; i--) {
+            MP_VERBOSE(priv, "FIX, CLOSE fd(%d): %d\n", i, state->demux_fds[i]);
+            close(state->demux_fds[i]);
         }
-        priv->demux_fds_cnt = cnt;
-    } else if (priv->demux_fds_cnt < cnt) {
-        for (i = priv->demux_fds_cnt; i < cnt; i++) {
-            priv->demux_fds[i] = open(demux_dev,
+        state->demux_fds_cnt = cnt;
+    } else if (state->demux_fds_cnt < cnt) {
+        for (i = state->demux_fds_cnt; i < cnt; i++) {
+            state->demux_fds[i] = open(demux_dev,
                                       O_RDWR | O_NONBLOCK | O_CLOEXEC);
-            MP_VERBOSE(priv, "FIX, OPEN fd(%d): %d\n", i, priv->demux_fds[i]);
-            if (priv->demux_fds[i] < 0) {
+            MP_VERBOSE(priv, "FIX, OPEN fd(%d): %d\n", i, state->demux_fds[i]);
+            if (state->demux_fds[i] < 0) {
                 MP_ERR(priv, "ERROR OPENING DEMUX 0: %d\n", errno);
                 return 0;
             } else
-                priv->demux_fds_cnt++;
+                state->demux_fds_cnt++;
         }
     }
 
@@ -370,7 +435,7 @@ static int do_diseqc(int secfd, int sat_no, int polv, int hi_lo)
                            (sat_no / 4) % 2 ? SEC_MINI_B : SEC_MINI_A);
 }
 
-static int tune_it(dvb_priv_t *priv, int fd_frontend, int fd_sec,
+static int tune_it(dvb_priv_t *priv, int fd_frontend,
                    unsigned int freq, unsigned int srate, char pol, int tone,
                    bool is_dvb_s2, int stream_id,
                    fe_spectral_inversion_t specInv, unsigned int diseqc,
@@ -383,21 +448,19 @@ static int tune_it(dvb_priv_t *priv, int fd_frontend, int fd_sec,
                    int timeout)
 {
     int hi_lo = 0, dfd;
-    struct dvb_frontend_parameters feparams;
-    struct dvb_frontend_info fe_info;
 
-    MP_VERBOSE(priv, "TUNE_IT, fd_frontend %d, fd_sec %d\nfreq %lu, srate %lu, "
-               "pol %c, tone %i, diseqc %u\n", fd_frontend, fd_sec,
+    dvb_state_t* state = priv->state;
+
+    struct dvb_frontend_parameters feparams;
+
+    MP_VERBOSE(priv, "TUNE_IT, fd_frontend %d, freq %lu, srate %lu, "
+               "pol %c, tone %i, diseqc %u\n", fd_frontend,
                (long unsigned int)freq, (long unsigned int)srate, pol,
                tone, diseqc);
 
     memset(&feparams, 0, sizeof(feparams));
-    if (ioctl(fd_frontend, FE_GET_INFO, &fe_info) < 0) {
-        MP_FATAL(priv, "FE_GET_INFO FAILED\n");
-        return -1;
-    }
 
-    MP_VERBOSE(priv, "Using DVB card \"%s\"\n", fe_info.name);
+    MP_VERBOSE(priv, "Using DVB card \"%s\"\n", state->cards[state->card].name);
 
     {
         /* discard stale QPSK events */
@@ -408,8 +471,8 @@ static int tune_it(dvb_priv_t *priv, int fd_frontend, int fd_sec,
         }
     }
 
-    switch (fe_info.type) {
-    case FE_OFDM:
+    switch (state->tuner_type) {
+    case TUNER_TER: {
         if (freq < 1000000)
             freq *= 1000UL;
         feparams.frequency = freq;
@@ -427,8 +490,9 @@ static int tune_it(dvb_priv_t *priv, int fd_frontend, int fd_sec,
             MP_ERR(priv, "ERROR tuning channel\n");
             return -1;
         }
-        break;
-    case FE_QPSK:
+    }
+    break;
+    case TUNER_SAT: {
         // DVB-S
         if (freq > 2200000) {
             // this must be an absolute frequency
@@ -505,8 +569,35 @@ static int tune_it(dvb_priv_t *priv, int fd_frontend, int fd_sec,
             return -1;
         }
 #endif
-        break;
-    case FE_QAM:
+    }
+    break;
+    case TUNER_CBL: {
+#ifdef DVB_USE_S2API
+        /* S2API is the DVB API new since 2.6.28.
+         * It is also needed for devices supporting multiple delivery systems,
+         * commonly DVB-C + DVB-T are supported here.
+         */
+        fe_delivery_system_t delsys = SYS_DVBC_ANNEX_AC;
+        struct dtv_property p[] = {
+            { .cmd = DTV_DELIVERY_SYSTEM, .u.data = delsys },
+            { .cmd = DTV_FREQUENCY, .u.data = freq },
+            { .cmd = DTV_INVERSION, .u.data = specInv },
+            { .cmd = DTV_MODULATION, .u.data = modulation },
+            { .cmd = DTV_SYMBOL_RATE, .u.data = srate },
+            { .cmd = DTV_INNER_FEC, .u.data = HP_CodeRate },
+            { .cmd = DTV_TUNE },
+        };
+        struct dtv_properties cmdseq = {
+            .num = sizeof(p) / sizeof(p[0]),
+            .props = p
+        };
+        MP_VERBOSE(priv, "tuning DVB-C to %d, srate=%d using DVBv5 API...\n",
+                   freq, srate);
+        if ((ioctl(fd_frontend, FE_SET_PROPERTY, &cmdseq)) == -1) {
+            MP_ERR(priv, "ERROR tuning channel\n");
+            return -1;
+        }
+#else
         feparams.frequency = freq;
         feparams.inversion = specInv;
         feparams.u.qam.symbol_rate = srate;
@@ -517,9 +608,11 @@ static int tune_it(dvb_priv_t *priv, int fd_frontend, int fd_sec,
             MP_ERR(priv, "ERROR tuning channel\n");
             return -1;
         }
-        break;
+#endif
+    }
+    break;
 #ifdef DVB_ATSC
-    case FE_ATSC:
+    case TUNER_ATSC: {
         feparams.frequency = freq;
         feparams.u.vsb.modulation = modulation;
         MP_VERBOSE(priv, "tuning ATSC to %d, modulation=%d\n", freq, modulation);
@@ -527,7 +620,8 @@ static int tune_it(dvb_priv_t *priv, int fd_frontend, int fd_sec,
             MP_ERR(priv, "ERROR tuning channel\n");
             return -1;
         }
-        break;
+    }
+    break;
 #endif
     default:
         MP_VERBOSE(priv, "Unknown FE type. Aborting\n");
@@ -548,7 +642,9 @@ int dvb_tune(dvb_priv_t *priv, int freq, char pol, int srate, int diseqc,
 {
     MP_INFO(priv, "dvb_tune Freq: %lu\n", (long unsigned int) freq);
 
-    int ris = tune_it(priv, priv->fe_fd, priv->sec_fd, freq, srate, pol, tone,
+    dvb_state_t* state = priv->state;
+
+    int ris = tune_it(priv, state->fe_fd, freq, srate, pol, tone,
                       is_dvb_s2, stream_id, specInv, diseqc, modulation,
                       HP_CodeRate, TransmissionMode, guardInterval,
                       bandWidth, LP_CodeRate, hier, timeout);

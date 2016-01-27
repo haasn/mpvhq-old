@@ -1,20 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * Parts based on the MPlayer VA-API patch (see vo_vaapi.c).
- *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stddef.h>
@@ -67,22 +65,45 @@ static VADisplay *create_wayland_va_display(GL *gl)
 }
 #endif
 
+#if HAVE_VAAPI_DRM
+#include <va/va_drm.h>
+
+static VADisplay *create_drm_va_display(GL *gl)
+{
+    int drm_fd = (intptr_t)gl->MPGetNativeDisplay("drm");
+    // Note: yes, drm_fd==0 could be valid - but it's rare and doesn't fit with
+    //       our slightly crappy way of passing it through, so consider 0 not
+    //       valid.
+    return drm_fd ? vaGetDisplayDRM(drm_fd) : NULL;
+}
+#endif
+
+struct va_create_native {
+    VADisplay *(*create)(GL *gl);
+};
+
+static const struct va_create_native create_native_cbs[] = {
+#if HAVE_VAAPI_X11
+    {create_x11_va_display},
+#endif
+#if HAVE_VAAPI_WAYLAND
+    {create_wayland_va_display},
+#endif
+#if HAVE_VAAPI_DRM
+    {create_drm_va_display},
+#endif
+};
+
 static VADisplay *create_native_va_display(GL *gl)
 {
     if (!gl->MPGetNativeDisplay)
         return NULL;
-    VADisplay *display = NULL;
-#if HAVE_VAAPI_X11
-    display = create_x11_va_display(gl);
-    if (display)
-        return display;
-#endif
-#if HAVE_VAAPI_WAYLAND
-    display = create_wayland_va_display(gl);
-    if (display)
-        return display;
-#endif
-    return display;
+    for (int n = 0; n < MP_ARRAY_SIZE(create_native_cbs); n++) {
+        VADisplay *display = create_native_cbs[n].create(gl);
+        if (display)
+            return display;
+    }
+    return NULL;
 }
 
 struct priv {
@@ -189,8 +210,12 @@ static int create(struct gl_hwdec *hw)
     if (!eglGetCurrentDisplay())
         return -1;
 
-    if (!strstr(gl->extensions, "EXT_image_dma_buf_import") ||
-        !strstr(gl->extensions, "EGL_KHR_image_base") ||
+    const char *exts = eglQueryString(eglGetCurrentDisplay(), EGL_EXTENSIONS);
+    if (!exts)
+        return -1;
+
+    if (!strstr(exts, "EXT_image_dma_buf_import") ||
+        !strstr(exts, "EGL_KHR_image_base") ||
         !strstr(gl->extensions, "GL_OES_EGL_image") ||
         !(gl->mpgl_caps & MPGL_CAP_TEX_RG))
         return -1;
@@ -285,12 +310,12 @@ static int map_image(struct gl_hwdec *hw, struct mp_image *hw_image,
     int mpfmt = va_fourcc_to_imgfmt(va_image->format.fourcc);
     if (mpfmt != IMGFMT_NV12 && mpfmt != IMGFMT_420P) {
         MP_FATAL(p, "unsupported VA image format %s\n",
-                 VA_STR_FOURCC(va_image->format.fourcc));
+                 mp_tag_str(va_image->format.fourcc));
         goto err;
     }
 
     if (!hw->converted_imgfmt) {
-        MP_VERBOSE(p, "format: %s %s\n", VA_STR_FOURCC(va_image->format.fourcc),
+        MP_VERBOSE(p, "format: %s %s\n", mp_tag_str(va_image->format.fourcc),
                    mp_imgfmt_to_name(mpfmt));
         hw->converted_imgfmt = mpfmt;
     }

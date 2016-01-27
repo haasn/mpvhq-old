@@ -29,7 +29,7 @@
 #include "osdep/atomics.h"
 #include "osdep/io.h"
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "config.h"
 
@@ -57,7 +57,6 @@
 extern const stream_info_t stream_info_cdda;
 extern const stream_info_t stream_info_dvb;
 extern const stream_info_t stream_info_tv;
-extern const stream_info_t stream_info_pvr;
 extern const stream_info_t stream_info_smb;
 extern const stream_info_t stream_info_null;
 extern const stream_info_t stream_info_memory;
@@ -89,9 +88,6 @@ static const stream_info_t *const stream_list[] = {
 #endif
 #if HAVE_TV
     &stream_info_tv,
-#endif
-#if HAVE_PVR
-    &stream_info_pvr,
 #endif
 #if HAVE_LIBSMBCLIENT
     &stream_info_smb,
@@ -504,7 +500,7 @@ int stream_fill_buffer(stream_t *s)
 }
 
 // Read between 1..buf_size bytes of data, return how much data has been read.
-// Return 0 on EOF, error, of if buf_size was 0.
+// Return 0 on EOF, error, or if buf_size was 0.
 int stream_read_partial(stream_t *s, char *buf, int buf_size)
 {
     assert(s->buf_pos <= s->buf_len);
@@ -918,7 +914,7 @@ struct bstr stream_read_complete(struct stream *s, void *talloc_ctx,
     int total_read = 0;
     int padding = 1;
     char *buf = NULL;
-    int64_t size = stream_get_size(s);
+    int64_t size = stream_get_size(s) - stream_tell(s);
     if (size > max_size)
         return (struct bstr){NULL, 0};
     if (size > 0)

@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stddef.h>
@@ -137,7 +137,7 @@ static int reinit(struct gl_hwdec *hw, struct mp_image_params *params)
     assert(params->imgfmt == hw->driver->imgfmt);
     p->image_params = *params;
 
-    if (mp_vdpau_handle_preemption(p->ctx, &p->preemption_counter) < 1)
+    if (mp_vdpau_handle_preemption(p->ctx, &p->preemption_counter) < 0)
         return -1;
 
     gl->VDPAUInitNV(BRAINDEATH(p->ctx->vdp_device), p->ctx->get_proc_address);

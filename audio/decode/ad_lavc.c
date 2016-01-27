@@ -26,7 +26,7 @@
 #include <libavutil/common.h>
 #include <libavutil/intreadwrite.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "config.h"
 #include "common/av_common.h"
@@ -42,7 +42,6 @@ struct priv {
     AVFrame *avframe;
     struct mp_audio frame;
     bool force_channel_map;
-    struct demux_packet *packet;
     uint32_t skip_samples;
 };
 
@@ -79,12 +78,12 @@ static int init(struct dec_audio *da, const char *decoder)
     AVCodecContext *lavc_context;
     AVCodec *lavc_codec;
     struct sh_stream *sh = da->header;
-    struct sh_audio *sh_audio = sh->audio;
+    struct mp_codec_params *c = sh->codec;
 
     struct priv *ctx = talloc_zero(NULL, struct priv);
     da->priv = ctx;
 
-    ctx->force_channel_map = sh_audio->force_channels;
+    ctx->force_channel_map = c->force_channels;
 
     lavc_codec = avcodec_find_decoder_by_name(decoder);
     if (!lavc_codec) {
@@ -116,20 +115,20 @@ static int init(struct dec_audio *da, const char *decoder)
 
     mp_set_avopts(da->log, lavc_context, opts->avopts);
 
-    lavc_context->codec_tag = sh->codec_tag;
-    lavc_context->sample_rate = sh_audio->samplerate;
-    lavc_context->bit_rate = sh_audio->bitrate;
-    lavc_context->block_align = sh_audio->block_align;
-    lavc_context->bits_per_coded_sample = sh_audio->bits_per_coded_sample;
-    lavc_context->channels = sh_audio->channels.num;
-    if (!mp_chmap_is_unknown(&sh_audio->channels))
-        lavc_context->channel_layout = mp_chmap_to_lavc(&sh_audio->channels);
+    lavc_context->codec_tag = c->codec_tag;
+    lavc_context->sample_rate = c->samplerate;
+    lavc_context->bit_rate = c->bitrate;
+    lavc_context->block_align = c->block_align;
+    lavc_context->bits_per_coded_sample = c->bits_per_coded_sample;
+    lavc_context->channels = c->channels.num;
+    if (!mp_chmap_is_unknown(&c->channels))
+        lavc_context->channel_layout = mp_chmap_to_lavc(&c->channels);
 
     // demux_mkv
-    mp_lavc_set_extradata(lavc_context, sh->extradata, sh->extradata_size);
+    mp_lavc_set_extradata(lavc_context, c->extradata, c->extradata_size);
 
-    if (sh->lav_headers)
-        mp_copy_lav_codec_headers(lavc_context, sh->lav_headers);
+    if (c->lav_headers)
+        mp_copy_lav_codec_headers(lavc_context, c->lav_headers);
 
     mp_set_avcodec_threads(da->log, lavc_context, opts->threads);
 
@@ -165,26 +164,17 @@ static int control(struct dec_audio *da, int cmd, void *arg)
     switch (cmd) {
     case ADCTRL_RESET:
         avcodec_flush_buffers(ctx->avctx);
-        talloc_free(ctx->packet);
-        ctx->packet = NULL;
         ctx->skip_samples = 0;
         return CONTROL_TRUE;
     }
     return CONTROL_UNKNOWN;
 }
 
-static int decode_packet(struct dec_audio *da, struct mp_audio **out)
+static int decode_packet(struct dec_audio *da, struct demux_packet *mpkt,
+                         struct mp_audio **out)
 {
     struct priv *priv = da->priv;
     AVCodecContext *avctx = priv->avctx;
-
-    struct demux_packet *mpkt = priv->packet;
-    if (!mpkt) {
-        if (demux_read_packet_async(da->header, &mpkt) == 0)
-            return AD_WAIT;
-    }
-
-    priv->packet = talloc_steal(priv, mpkt);
 
     int in_len = mpkt ? mpkt->len : 0;
 
@@ -203,34 +193,31 @@ static int decode_packet(struct dec_audio *da, struct mp_audio **out)
             mpkt->len    -= ret;
             mpkt->pts = MP_NOPTS_VALUE; // don't reset PTS next time
         }
-        if (mpkt->len == 0 || ret < 0) {
-            talloc_free(mpkt);
-            priv->packet = NULL;
-        }
         // LATM may need many packets to find mux info
-        if (ret == AVERROR(EAGAIN))
-            return AD_OK;
+        if (ret == AVERROR(EAGAIN)) {
+            mpkt->len = 0;
+            return 0;
+        }
     }
     if (ret < 0) {
         MP_ERR(da, "Error decoding audio.\n");
-        return AD_ERR;
+        return -1;
     }
     if (!got_frame)
-        return mpkt ? AD_OK : AD_EOF;
+        return 0;
 
     double out_pts = mp_pts_from_av(priv->avframe->pkt_pts, NULL);
 
     struct mp_audio *mpframe = mp_audio_from_avframe(priv->avframe);
     if (!mpframe)
-        return AD_ERR;
+        return -1;
 
     struct mp_chmap lavc_chmap = mpframe->channels;
     if (lavc_chmap.num != avctx->channels)
         mp_chmap_from_channels(&lavc_chmap, avctx->channels);
     if (priv->force_channel_map) {
-        struct sh_audio *sh_audio = da->header->audio;
-        if (lavc_chmap.num == sh_audio->channels.num)
-            lavc_chmap = sh_audio->channels;
+        if (lavc_chmap.num == da->header->codec->channels.num)
+            lavc_chmap = da->header->codec->channels;
     }
     mp_audio_set_channels(mpframe, &lavc_chmap);
 

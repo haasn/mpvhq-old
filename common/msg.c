@@ -24,7 +24,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "misc/bstr.h"
 #include "osdep/atomics.h"
@@ -632,7 +632,7 @@ const int mp_mpv_log_levels[MSGL_MAX + 1] = {
 int mp_msg_find_level(const char *s)
 {
     for (int n = 0; n < MP_ARRAY_SIZE(mp_log_levels); n++) {
-        if (mp_log_levels[n] && mp_log_levels[n] && !strcmp(s, mp_log_levels[n]))
+        if (mp_log_levels[n] && !strcmp(s, mp_log_levels[n]))
             return n;
     }
     return -1;

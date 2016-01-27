@@ -3,18 +3,18 @@
  *
  * Filter graph creation code taken from FFmpeg ffplay.c (LGPL 2.1 or later)
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -50,6 +50,7 @@
 #if LIBAVFILTER_VERSION_MICRO < 100
 #define graph_parse(graph, filters, inputs, outputs, log_ctx) \
     avfilter_graph_parse(graph, filters, inputs, outputs, log_ctx)
+#define avfilter_graph_send_command(a, b, c, d, e, f, g) -1
 #else
 #define graph_parse(graph, filters, inputs, outputs, log_ctx) \
     avfilter_graph_parse_ptr(graph, filters, &(inputs), &(outputs), log_ctx)
@@ -221,6 +222,14 @@ static int control(struct af_instance *af, int cmd, void *arg)
         p->timebase_out = l_out->time_base;
 
         return mp_audio_config_equals(in, &orig_in) ? AF_OK : AF_FALSE;
+    }
+    case AF_CONTROL_COMMAND: {
+        if (!p->graph)
+            break;
+        char **args = arg;
+        return avfilter_graph_send_command(p->graph, "all",
+                                           args[0], args[1], &(char){0}, 0, 0)
+                >= 0 ? CONTROL_OK : CONTROL_ERROR;
     }
     case AF_CONTROL_GET_METADATA:
         if (p->metadata) {

@@ -4,18 +4,18 @@
  * Copyright © 2012-2013 Collabora, Ltd.
  * Copyright © 2013 Alexander Preisinger <alexander.preisinger@gmail.com>
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -34,7 +34,7 @@
 #include "misc/bstr.h"
 #include "options/options.h"
 #include "common/msg.h"
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "wayland_common.h"
 
@@ -1135,7 +1135,7 @@ static int vo_wayland_check_events (struct vo *vo)
 
         if (poll(&fd, 1, 0) > 0) {
             if (fd.revents & POLLERR) {
-                MP_ERR(wl, "error occured on the drag&drop fd\n");
+                MP_ERR(wl, "error occurred on the drag&drop fd\n");
                 close(wl->input.dnd_fd);
                 wl->input.dnd_fd = -1;
             }

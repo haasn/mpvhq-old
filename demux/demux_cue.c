@@ -3,18 +3,18 @@
  *
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -23,7 +23,7 @@
 #include <dirent.h>
 #include <inttypes.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "misc/bstr.h"
 #include "common/msg.h"
@@ -150,8 +150,18 @@ static void build_timeline(struct timeline *tl)
 
     add_source(tl, tl->demuxer);
 
-    struct cue_track *tracks = p->f->tracks;
-    size_t track_count = p->f->num_tracks;
+    struct cue_track *tracks = NULL;
+    size_t track_count = 0;
+
+    for (size_t n = 0; n < p->f->num_tracks; n++) {
+        struct cue_track *track = &p->f->tracks[n];
+        if (track->filename) {
+            MP_TARRAY_APPEND(ctx, tracks, track_count, *track);
+        } else {
+            MP_WARN(tl->demuxer, "No file specified for track entry %zd. "
+                    "It will be removed\n", n + 1);
+        }
+    }
 
     if (track_count == 0) {
         MP_ERR(tl, "CUE: no tracks found!\n");

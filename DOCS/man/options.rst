@@ -136,7 +136,9 @@ Playback Control
 
 ``--chapter=<start[-end]>``
     Specify which chapter to start playing at. Optionally specify which
-    chapter to end playing at. Also see ``--start``.
+    chapter to end playing at.
+
+    See also: ``--start``.
 
 ``--playlist-pos=<no|index>``
     Set which file on the internal playlist to start playback with. The index
@@ -321,7 +323,7 @@ Program Behavior
         Files explicitly requested by command line options, like
         ``--include`` or ``--use-filedir-conf``, will still be loaded.
 
-    Also see ``--config-dir``.
+    See also: ``--config-dir``.
 
 ``--list-options``
     Prints all available options.
@@ -537,7 +539,7 @@ Video
         filters all frames, but doesn't render them on the VO. It tries to query
         the display FPS (X11 only, not correct on multi-monitor systems), or
         assumes infinite display FPS if that fails. Drops are indicated in
-        the terminal status line as ``D:`` field. If the decoder is too slow,
+        the terminal status line as ``Dropped:`` field. If the decoder is too slow,
         in theory all frames would have to be dropped (because all frames are
         too late) - to avoid this, frame dropping stops if the effective
         framerate is below 10 FPS.
@@ -558,9 +560,13 @@ Video
 
 ``--display-fps=<fps>``
     Set the display FPS used with the ``--video-sync=display-*`` modes. By
-    default a detected value is used (X11 only, not correct on multi-monitor
-    systems). Keep in mind that setting an incorrect value (even if slightly
-    incorrect) can ruin video playback.
+    default, a detected value is used. Keep in mind that setting an incorrect
+    value (even if slightly incorrect) can ruin video playback. On multi-monitor
+    systems, there is a chance that the detected value is from the wrong
+    monitor.
+
+    Set this option only if you have reason to believe the automatically
+    determined value is wrong.
 
 ``--hwdec=<api>``
     Specify the hardware video decoding API that should be used if possible.
@@ -613,7 +619,7 @@ Video
 
     For ``opengl-cb``, if set, load the interop context as soon as the OpenGL
     context is created. Since ``opengl-cb`` has no on-demand loading, this
-    allows enabling hardware decoding at runtime at all, without having to
+    allows enabling hardware decoding at runtime at all, without having
     to temporarily set the ``hwdec`` option just during OpenGL context
     initialization with ``mpv_opengl_cb_init_gl()``.
 
@@ -675,7 +681,7 @@ Video
     example ``--video-zoom`` does nothing if this option is enabled.)
 
     The video and monitor aspects aspect will be ignored. Aspect correction
-    would require to scale the video in the X or Y direction, but this option
+    would require scaling the video in the X or Y direction, but this option
     disables scaling, disabling all aspect correction.
 
     Note that the scaler algorithm may still be used, even if the video isn't
@@ -704,7 +710,7 @@ Video
 
     This option is disabled if the ``--no-keepaspect`` option is used.
 
-``--video-rotate=<0-360|no>``
+``--video-rotate=<0-359|no>``
     Rotate the video clockwise, in degrees. Currently supports 90° steps only.
     If ``no`` is given, the video is never rotated, even if the file has
     rotation metadata. (The rotation value is added to the rotation metadata,
@@ -829,7 +835,7 @@ Video
     You can get the list of allowed codecs with ``mpv --vd=help``. Remove the
     prefix, e.g. instead of ``lavc:h264`` use ``h264``.
 
-    By default this is set to ``h264,vc1,wmv3,hevc,mpeg2video``. Note that the
+    By default, this is set to ``h264,vc1,wmv3,hevc,mpeg2video``. Note that the
     hardware acceleration special codecs like ``h264_vdpau`` are not relevant
     anymore, and in fact have been removed from Libav in this form.
 
@@ -1036,7 +1042,9 @@ Audio
 
 ``--mute=<auto|yes|no>``
     Set startup audio mute status. ``auto`` (default) will not change the mute
-    status. Also see ``--volume``.
+    status.
+
+    See also: ``--volume``.
 
 ``--softvol=<mode>``
     Control whether to use the volume controls of the audio output driver or
@@ -1094,8 +1102,8 @@ Audio
         This and enabling passthrough via ``--ad`` are deprecated in favor of
         using ``--audio-spdif=dts-hd``.
 
-``--audio-channels=<number|layout>``
-    Request a channel layout for audio output (default: auto). This  will ask
+``--audio-channels=<auto|number|layout>``
+    Request a channel layout for audio output (default: stereo). This  will ask
     the AO to open a device with the given channel layout. It's up to the AO
     to accept this layout, or to pick a fallback or to error out if the
     requested layout is not supported.
@@ -1108,9 +1116,10 @@ Audio
     lists speaker names, which can be used to express arbitrary channel
     layouts (e.g. ``fl-fr-lfe`` is 2.1).
 
-    The default is ``--audio-channels=auto``, which tries to play audio using
-    the input file's channel layout. (Or more precisely, the output of the
-    audio filter chain.) (``empty`` is an accepted obsolete alias for ``auto``.)
+    ``--audio-channels=auto`` tries to play audio using the input file's
+    channel layout. There is no guarantee that the audio API handles this
+    correctly. See the HDMI warning below.
+    (``empty`` is an accepted obsolete alias for ``auto``.)
 
     This will also request the channel layout from the decoder. If the decoder
     does not support the layout, it will fall back to its native channel layout.
@@ -1128,6 +1137,16 @@ Audio
         the receiver does not support them. If a receiver gets an unsupported
         channel layout, random things can happen, such as dropping the
         additional channels, or adding noise.
+
+``--audio-normalize-downmix=<yes|no>``
+    Enable/disable normalization if surround audio is downmixed to stereo
+    (default: no). If this is disabled, downmix can cause clipping. If it's
+    enabled, the output might be too silent. It depends on the source audio.
+
+    Technically, this changes the ``normalize`` suboption of the
+    ``lavrresample`` audio filter, which performs the downmixing.
+
+    If downmix happens outside of mpv for some reason, this has no effect.
 
 ``--audio-display=<no|attachment>``
     Setting this option to ``attachment`` (default) will display image
@@ -1161,8 +1180,8 @@ Audio
     point of file change. Default: ``weak``.
 
     :no:    Disable gapless audio.
-    :yes:   The audio device is opened using parameters chosen according to the
-            first file played and is then kept open for gapless playback. This
+    :yes:   The audio device is opened using parameters chosen for the first
+            file played and is then kept open for gapless playback. This
             means that if the first file for example has a low sample rate, then
             the following files may get resampled to the same low sample rate,
             resulting in reduced sound quality. If you play files with different
@@ -1209,7 +1228,11 @@ Audio
     :no:    Don't automatically load external audio files.
     :exact: Load the media filename with audio file extension (default).
     :fuzzy: Load all audio files containing media filename.
-    :all:   Load all audio files in the current directory.
+    :all:   Load all aufio files in the current and ``--audio-file-paths``
+            directories.
+
+``--audio-file-paths=<path1:path2:...>``
+    Equivalent to ``--sub-paths`` option, but for auto-loaded audio files.
 
 ``--audio-client-name=<name>``
     The application name the player reports to the audio API. Can be useful
@@ -1245,6 +1268,14 @@ Audio
 
 Subtitles
 ---------
+
+.. note::
+
+    Changing styling and position does not work with all subtitles. Image-based
+    subtitles (DVD, Bluray/PGS, DVB) can not changed for fundamental reasons.
+    Subtitles in ASS format are normally not changed intentionally, but
+    overriding them can be controlled with ``--ass-style-override``.
+
 
 ``--no-sub``
     Do not select any subtitle when the file is loaded.
@@ -1343,8 +1374,8 @@ Subtitles
 
 ``--sub-speed=<0.1-10.0>``
     Multiply the subtitle event timestamps with the given value. Can be used
-    to fix the playback speed for frame-based subtitle formats. Works for
-    external text subtitles only.
+    to fix the playback speed for frame-based subtitle formats. Affects text
+    subtitles only.
 
     .. admonition:: Example
 
@@ -1592,27 +1623,27 @@ Subtitles
     This mode doesn't take language or fallback codepage.
 
 ``--sub-fix-timing``, ``--no-sub-fix-timing``
-    By default, external text subtitles are preprocessed to remove minor gaps
-    or overlaps between subtitles (if the difference is smaller than 200 ms,
-    the gap or overlap is removed). This does not affect image subtitles,
-    subtitles muxed with audio/video, or subtitles in the ASS format.
+    By default, subtitle timing is adjusted to remove minor gaps or overlaps
+    between subtitles (if the difference is smaller than 210 ms, the gap or
+    overlap is removed).
 
 ``--sub-forced-only``
     Display only forced subtitles for the DVD subtitle stream selected by e.g.
     ``--slang``.
 
 ``--sub-fps=<rate>``
-    Specify the framerate of the subtitle file (default: video fps).
+    Specify the framerate of the subtitle file (default: video fps). Affects
+    text subtitles only.
 
     .. note::
 
         ``<rate>`` > video fps speeds the subtitles up for frame-based
         subtitle files and slows them down for time-based ones.
 
-    Also see ``--sub-speed`` option.
+    See also: ``--sub-speed``.
 
 ``--sub-gauss=<0.0-3.0>``
-    Apply Gaussian blur to image subtitles (default: 0). This can help making
+    Apply Gaussian blur to image subtitles (default: 0). This can help to make
     pixelated DVD/Vobsubs look nicer. A value other than 0 also switches to
     software subtitle scaling. Might be slow.
 
@@ -1621,7 +1652,7 @@ Subtitles
         Never applied to text subtitles.
 
 ``--sub-gray``
-    Convert image subtitles to grayscale. Can help making yellow DVD/Vobsubs
+    Convert image subtitles to grayscale. Can help to make yellow DVD/Vobsubs
     look nicer.
 
     .. note::
@@ -1993,8 +2024,8 @@ Window
     always re-enabled when the player is paused.
 
     This is not supported on all video outputs or platforms. Sometimes it is
-    implemented, but does not work (happens often on GNOME). You might be able
-    to to work this around using ``--heartbeat-cmd`` instead.
+    implemented, but does not work (known to happen with GNOME). You might be
+    able to work around this using ``--heartbeat-cmd`` instead.
 
 ``--wid=<ID>``
     This tells mpv to attach to an existing window. If a VO is selected that
@@ -2013,7 +2044,7 @@ Window
     parent, like with X11.
 
     On OSX/Cocoa, the ID is interpreted as ``NSView*``. Pass it as value cast
-    to ``intptr_t``. mpv will creates its own sub-view. Because OSX does not
+    to ``intptr_t``. mpv will create its own sub-view. Because OSX does not
     support window embedding of foreign processes, this works only with libmpv,
     and will crash when used from the command line.
 
@@ -2222,7 +2253,7 @@ Demuxer
     Encryption key the demuxer should use. This is the raw binary data of
     the key converted to a hexadecimal string.
 
-``--demuxer-mkv-subtitle-preroll``, ``--mkv-subtitle-preroll``
+``--demuxer-mkv-subtitle-preroll=<yes|index|no>``, ``--mkv-subtitle-preroll``
     Try harder to show embedded soft subtitles when seeking somewhere. Normally,
     it can happen that the subtitle at the seek target is not shown due to how
     some container file formats are designed. The subtitles appear only if
@@ -2254,7 +2285,11 @@ Demuxer
     overlap with a seek target. In these cases, mpv will reduce the amount
     of data read to a minimum. (Although it will still read *all* data between
     the cluster that contains the first wanted subtitle packet, and the seek
-    target.)
+    target.) If the ``index`` choice (which is the default) is specified, then
+    prerolling will be done only if this information is actually available. If
+    this method is used, the maximum amount of data to skip can be additionally
+    controlled by ``--demuxer-mkv-subtitle-preroll-secs-index`` (it still uses
+    the value of the option without ``-index`` if that is higher).
 
     See also ``--hr-seek-demuxer-offset`` option. This option can achieve a
     similar effect, but only if hr-seek is active. It works with any demuxer,
@@ -2264,6 +2299,9 @@ Demuxer
     ``--mkv-subtitle-preroll`` is a deprecated alias.
 
 ``--demuxer-mkv-subtitle-preroll-secs=<value>``
+    See ``--demuxer-mkv-subtitle-preroll``.
+
+``--demuxer-mkv-subtitle-preroll-secs-index=<value>``
     See ``--demuxer-mkv-subtitle-preroll``.
 
 ``--demuxer-mkv-probe-video-duration=<yes|no|full>``
@@ -2390,7 +2428,7 @@ Input
 
 ``--input-key-fifo-size=<2-65000>``
     Specify the size of the FIFO that buffers key events (default: 7). If it
-    is too small some events may be lost. The main disadvantage of setting it
+    is too small, some events may be lost. The main disadvantage of setting it
     to a very large value is that if you hold down a key triggering some
     particularly slow command then the player may be unresponsive while it
     processes all the queued commands.
@@ -2457,7 +2495,7 @@ Input
 
     On X11, a sub-window with input enabled grabs all keyboard input as long
     as it is 1. a child of a focused window, and 2. the mouse is inside of
-    the sub-window. The can steal away all keyboard input from the
+    the sub-window. It can steal away all keyboard input from the
     application embedding the mpv window, and on the other hand, the mpv
     window will receive no input if the mouse is outside of the mpv window,
     even though mpv has focus. Modern toolkits work around this weird X11
@@ -2727,7 +2765,7 @@ Screenshot
     Specify the filename template used to save screenshots. The template
     specifies the filename without file extension, and can contain format
     specifiers, which will be substituted when taking a screenshot.
-    By default the template is ``mpv-shot%n``, which results in filenames like
+    By default, the template is ``mpv-shot%n``, which results in filenames like
     ``mpv-shot0012.png`` for example.
 
     The template can start with a relative or absolute path, in order to
@@ -2883,7 +2921,7 @@ Terminal
     Particularly useful on slow terminals or broken ones which do not properly
     handle carriage return (i.e. ``\r``).
 
-    Also see ``--really-quiet`` and ``--msg-level``.
+    See also: ``--really-quiet`` and ``--msg-level``.
 
 ``--really-quiet``
     Display even less output and status messages than with ``--quiet``.
@@ -3016,8 +3054,9 @@ TV
     maximum size of the capture buffer in megabytes (default: dynamical)
 
 ``--tv-norm=<value>``
-    See the console output for a list of all available norms, also see the
-    ``normid`` option below.
+    See the console output for a list of all available norms.
+
+    See also: ``--tv-normid``.
 
 ``--tv-normid=<value> (v4l2 only)``
     Sets the TV norm to the given numeric ID. The TV norm depends on the
@@ -3227,7 +3266,7 @@ Cache
        multiple cache streams, and using the same file for them obviously
        clashes.
 
-    Also see ``--cache-file-size``.
+    See also: ``--cache-file-size``.
 
 ``--cache-file-size=<kBytes>``
     Maximum size of the file created with ``--cache-file``. For read accesses
@@ -3355,71 +3394,17 @@ DVB
 
 ``--dvbin-full-transponder=<yes|no>``
     Apply no filters on program PIDs, only tune to frequency and pass full
-    transponder to demuxer. This is useful to record multiple programs
-    on a single transponder, or to work around issues in the ``channels.conf``.
+    transponder to demuxer.
+    The player frontend selects the streams from the full TS in this case,
+    so the program which is shown initially may not match the chosen channel.
+    Switching between the programs is possible by cycling the ``program``
+    property.
+    This is useful to record multiple programs on a single transponder,
+    or to work around issues in the ``channels.conf``.
     It is also recommended to use this for channels which switch PIDs
     on-the-fly, e.g. for regional news.
 
     Default: ``no``
-
-PVR
----
-
-``--pvr-...``
-    These options tune various encoding properties of the PVR capture module.
-    It has to be used with any hardware MPEG encoder based card supported by
-    the V4L2 driver. The Hauppauge WinTV PVR-150/250/350/500 and all IVTV
-    based cards are known as PVR capture cards. Be aware that only Linux
-    2.6.18 kernel and above is able to handle MPEG stream through V4L2 layer.
-    For hardware capture of an MPEG stream and watching it with mpv, use
-    ``pvr://`` as media URL.
-
-
-``--pvr-aspect=<0-3>``
-    Specify input aspect ratio:
-
-    :0: 1:1
-    :1: 4:3 (default)
-    :2: 16:9
-    :3: 2.21:1
-
-``--pvr-arate=<32000-48000>``
-    Specify encoding audio rate (default: 48000 Hz, available: 32000,
-    44100 and 48000 Hz).
-
-``--pvr-alayer=<1-3>``
-    Specify MPEG audio layer encoding (default: 2).
-
-``--pvr-abitrate=<32-448>``
-    Specify audio encoding bitrate in kbps (default: 384).
-
-``--pvr-amode=<value>``
-    Specify audio encoding mode. Available preset values are 'stereo',
-    'joint_stereo', 'dual' and 'mono' (default: stereo).
-
-``--pvr-vbitrate=<value>``
-    Specify average video bitrate encoding in Mbps (default: 6).
-
-``--pvr-vmode=<value>``
-    Specify video encoding mode:
-
-    :vbr: Variable Bit Rate (default)
-    :cbr: Constant Bit Rate
-
-``--pvr-vpeak=<value>``
-    Specify peak video bitrate encoding in Mbps (only useful for VBR
-    encoding, default: 9.6).
-
-``--pvr-fmt=<value>``
-    Choose an MPEG format for encoding:
-
-    :ps:    MPEG-2 Program Stream (default)
-    :ts:    MPEG-2 Transport Stream
-    :mpeg1: MPEG-1 System Stream
-    :vcd:   Video CD compatible stream
-    :svcd:  Super Video CD compatible stream
-    :dvd:   DVD compatible stream
-
 
 Miscellaneous
 -------------
@@ -3448,7 +3433,7 @@ Miscellaneous
     implement a perfect audio delay measurement. With this value, if large A/V
     sync offsets occur, they will only take about 1 or 2 seconds to settle
     out. This delay in reaction time to sudden A/V offsets should be the only
-    side-effect of turning this option on, for all sound drivers.
+    side effect of turning this option on, for all sound drivers.
 
 ``--video-sync=<audio|...>``
     How the player synchronizes audio and video.
@@ -3558,6 +3543,10 @@ Miscellaneous
     in verbose mode, i.e. ``--v``. In general we can't print errors, because
     other options such as e.g. user agent are not available with all protocols,
     and printing errors for unknown options would end up being too noisy.)
+
+``--vo-mmcss-profile=<name>``
+    (Windows only.)
+    Set the MMCSS profile for the video renderer thread (default: ``Playback``).
 
 ``--priority=<prio>``
     (Windows only.)

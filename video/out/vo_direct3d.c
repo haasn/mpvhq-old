@@ -29,7 +29,7 @@
 #include "config.h"
 #include "options/options.h"
 #include "options/m_option.h"
-#include "talloc.h"
+#include "mpv_talloc.h"
 #include "vo.h"
 #include "video/csputils.h"
 #include "video/mp_image.h"
@@ -222,8 +222,6 @@ static const struct fmt_entry fmt_table[] = {
     {IMGFMT_RGB32, D3DFMT_X8B8G8R8},
     {IMGFMT_BGR24, D3DFMT_R8G8B8}, //untested
     {IMGFMT_RGB565, D3DFMT_R5G6B5},
-    {IMGFMT_RGB555, D3DFMT_X1R5G5B5},
-    {IMGFMT_RGB8,  D3DFMT_R3G3B2}, //untested
     // grayscale (can be considered both packed and planar)
     {IMGFMT_Y8,    D3DFMT_L8},
     {IMGFMT_Y16,   D3DFMT_L16},
@@ -1205,7 +1203,7 @@ static void update_colorspace(d3d_priv *priv)
         csp.texture_bits = (csp.input_bits + 7) & ~7;
 
         struct mp_cmat coeff;
-        mp_get_yuv2rgb_coeffs(&csp, &coeff);
+        mp_get_csp_matrix(&csp, &coeff);
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 3; col++)
                 priv->d3d_colormatrix.m[row][col] = coeff.m[row][col];

@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stddef.h>
@@ -113,7 +113,7 @@ static int play(struct ao *ao, void **data, int samples, int flags)
 // rest of the user-provided buffer with silence.
 // This basically assumes that the audio device doesn't care about underruns.
 // If this is called in paused mode, it will always return 0.
-// The caller should set out_time_us to the expected delay the last sample
+// The caller should set out_time_us to the expected delay until the last sample
 // reaches the speakers, in microseconds, using mp_time_us() as reference.
 int ao_read_data(struct ao *ao, void **data, int samples, int64_t out_time_us)
 {

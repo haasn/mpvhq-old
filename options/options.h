@@ -44,6 +44,8 @@ typedef struct mp_vo_opts {
     float monitor_pixel_aspect;
     int force_window_position;
 
+    char *mmcss_profile;
+
     // vo_wayland, vo_drm
     struct sws_opts *sws_opts;
     // vo_opengl, vo_opengl_cb
@@ -224,6 +226,7 @@ typedef struct MPOpts {
 
     struct mp_chmap audio_output_channels;
     int audio_output_format;
+    int audio_normalize;
     int force_srate;
     int dtshd;
     double playback_speed;
@@ -236,6 +239,7 @@ typedef struct MPOpts {
     int field_dominance;
     char **sub_name;
     char **sub_paths;
+    char **audiofile_paths;
     int sub_auto;
     int audiofile_auto;
     int osd_bar_visible;

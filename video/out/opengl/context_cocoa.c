@@ -1,30 +1,25 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
- *
- * You can alternatively redistribute this file and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <OpenGL/OpenGL.h>
 #include <dlfcn.h>
 #include "video/out/cocoa_common.h"
 #include "osdep/macosx_versions.h"
-#include "common.h"
+#include "context.h"
 
 struct cgl_context {
     CGLPixelFormatObj pix;
@@ -99,7 +94,7 @@ error_out:
     return err;
 }
 
-static bool create_gl_context(struct MPGLContext *ctx)
+static bool create_gl_context(struct MPGLContext *ctx, int vo_flags)
 {
     struct cgl_context *p = ctx->priv;
     CGLError err;
@@ -124,8 +119,12 @@ static bool create_gl_context(struct MPGLContext *ctx)
     vo_cocoa_set_opengl_ctx(ctx->vo, p->ctx);
     CGLSetCurrentContext(p->ctx);
 
-    ctx->depth_r = ctx->depth_g = ctx->depth_b = cgl_color_size(ctx);
+    if (vo_flags & VOFLAG_ALPHA)
+        CGLSetParameter(p->ctx, kCGLCPSurfaceOpacity, &(GLint){0});
+
     mpgl_load_functions(ctx->gl, (void *)cocoa_glgetaddr, NULL, ctx->vo->log);
+    ctx->gl->fb_r = ctx->gl->fb_g = ctx->gl->fb_b = cgl_color_size(ctx);
+    ctx->gl->fb_premultiplied = true;
 
     CGLReleasePixelFormat(p->pix);
 
@@ -143,7 +142,7 @@ static int cocoa_init(MPGLContext *ctx, int vo_flags)
 {
     vo_cocoa_init(ctx->vo);
 
-    if (!create_gl_context(ctx))
+    if (!create_gl_context(ctx, vo_flags))
         return -1;
 
     ctx->gl->SwapInterval = set_swap_interval;

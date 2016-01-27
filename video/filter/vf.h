@@ -51,11 +51,6 @@ typedef struct vf_instance {
     int (*reconfig)(struct vf_instance *vf, struct mp_image_params *in,
                     struct mp_image_params *out);
 
-    // Legacy variant, use reconfig instead.
-    int (*config)(struct vf_instance *vf,
-                  int width, int height, int d_width, int d_height,
-                  unsigned int flags, unsigned int outfmt);
-
     int (*control)(struct vf_instance *vf, int request, void *data);
     int (*query_format)(struct vf_instance *vf, unsigned int fmt);
 
@@ -116,7 +111,6 @@ struct vf_chain {
     struct vf_instance *first, *last;
 
     struct mp_image_params input_params;
-    struct mp_image_params override_params; // input to first filter
     struct mp_image_params output_params;
     uint8_t allowed_output_formats[IMGFMT_END - IMGFMT_START];
 
@@ -150,12 +144,12 @@ enum vf_ctrl {
     /* Hack to make the OSD state object available to vf_sub which
      * access OSD/subtitle state outside of normal OSD draw time. */
     VFCTRL_INIT_OSD,
+    VFCTRL_COMMAND,
 };
 
 struct vf_chain *vf_new(struct mpv_global *global);
 void vf_destroy(struct vf_chain *c);
-int vf_reconfig(struct vf_chain *c, const struct mp_image_params *params,
-                const struct mp_image_params *override_params);
+int vf_reconfig(struct vf_chain *c, const struct mp_image_params *params);
 int vf_control_any(struct vf_chain *c, int cmd, void *arg);
 int vf_control_by_label(struct vf_chain *c, int cmd, void *arg, bstr label);
 int vf_filter_frame(struct vf_chain *c, struct mp_image *img);
@@ -171,22 +165,14 @@ struct vf_instance *vf_find_by_label(struct vf_chain *c, const char *label);
 void vf_print_filter_chain(struct vf_chain *c, int msglevel,
                            struct vf_instance *vf);
 
+int vf_send_command(struct vf_chain *c, char *label, char *cmd, char *arg);
+
 // Filter internal API
 struct mp_image *vf_alloc_out_image(struct vf_instance *vf);
 bool vf_make_out_image_writeable(struct vf_instance *vf, struct mp_image *img);
 void vf_add_output_frame(struct vf_instance *vf, struct mp_image *img);
 
 // default wrappers:
-int vf_next_config(struct vf_instance *vf,
-                   int width, int height, int d_width, int d_height,
-                   unsigned int flags, unsigned int outfmt);
 int vf_next_query_format(struct vf_instance *vf, unsigned int fmt);
-
-
-// Helpers
-
-void vf_rescale_dsize(int *d_width, int *d_height, int old_w, int old_h,
-                      int new_w, int new_h);
-void vf_set_dar(int *d_width, int *d_height, int w, int h, double dar);
 
 #endif /* MPLAYER_VF_H */

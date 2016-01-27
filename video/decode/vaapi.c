@@ -44,7 +44,7 @@
  * Note that redundant additional surfaces also might allow for some
  * buffering (i.e. not trying to reuse a surface while it's busy).
  */
-#define ADDTIONAL_SURFACES 6
+#define ADDTIONAL_SURFACES MPMAX(6, HWDEC_DELAY_QUEUE_COUNT)
 
 // Some upper bound.
 #define MAX_SURFACES 25
@@ -109,6 +109,7 @@ static const struct va_native_display disp_x11 = {
 #endif
 
 #define HAS_HEVC VA_CHECK_VERSION(0, 38, 0)
+#define HAS_VP9 (VA_CHECK_VERSION(0, 38, 1) && defined(FF_PROFILE_VP9_0))
 
 #define PE(av_codec_id, ff_profile, vdp_profile)                \
     {AV_CODEC_ID_ ## av_codec_id, FF_PROFILE_ ## ff_profile,    \
@@ -133,6 +134,9 @@ static const struct hwdec_profile_entry profiles[] = {
     PE(HEVC,        HEVC_MAIN,          HEVCMain),
     PE(HEVC,        HEVC_MAIN_10,       HEVCMain10),
 #endif
+#if HAS_VP9
+    PE(VP9,         VP9_0,              VP9Profile0),
+#endif
     {0}
 };
 
@@ -155,6 +159,9 @@ static const char *str_va_profile(VAProfile profile)
 #if HAS_HEVC
         PROFILE(HEVCMain);
         PROFILE(HEVCMain10);
+#endif
+#if HAS_VP9
+        PROFILE(VP9Profile0);
 #endif
 #undef PROFILE
     }

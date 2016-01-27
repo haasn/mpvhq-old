@@ -3,23 +3,18 @@
  *
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
- *
- * You can alternatively redistribute this file and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdio.h>
@@ -33,7 +28,7 @@
 
 #include "config.h"
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 #include "common/common.h"
 #include "misc/bstr.h"
 #include "common/msg.h"
@@ -43,7 +38,7 @@
 #include "video/mp_image.h"
 #include "sub/osd.h"
 
-#include "opengl/common.h"
+#include "opengl/context.h"
 #include "opengl/utils.h"
 #include "opengl/hwdec.h"
 #include "opengl/osd.h"
@@ -102,7 +97,8 @@ static void resize(struct gl_priv *p)
     struct mp_osd_res osd;
     vo_get_src_dst_rects(vo, &src, &dst, &osd);
 
-    gl_video_resize(p->renderer, vo->dwidth, -vo->dheight, &src, &dst, &osd);
+    int height = p->glctx->flip_v ? vo->dheight : -vo->dheight;
+    gl_video_resize(p->renderer, vo->dwidth, height, &src, &dst, &osd);
 
     vo->want_redraw = true;
 }
@@ -328,6 +324,8 @@ static int control(struct vo *vo, uint32_t request, void *data)
         if (screen) {
             screen->params.primaries = p->renderer_opts->target_prim;
             screen->params.gamma = p->renderer_opts->target_trc;
+            if (p->glctx->flip_v)
+                mp_image_vflip(screen);
         }
         *(struct mp_image **)data = screen;
         return true;
@@ -422,8 +420,6 @@ static int preinit(struct vo *vo)
     if (!p->renderer)
         goto err_out;
     gl_video_set_osd_source(p->renderer, vo->osd);
-    gl_video_set_output_depth(p->renderer, p->glctx->depth_r, p->glctx->depth_g,
-                              p->glctx->depth_b);
     gl_video_set_options(p->renderer, p->renderer_opts);
     gl_video_configure_queue(p->renderer, vo);
 

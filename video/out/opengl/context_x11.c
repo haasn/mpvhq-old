@@ -1,23 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
- *
- * You can alternatively redistribute this file and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <X11/Xlib.h>
@@ -27,7 +22,7 @@
 #include "header_fixes.h"
 
 #include "video/out/x11_common.h"
-#include "common.h"
+#include "context.h"
 
 struct glx_context {
     XVisualInfo *vinfo;
@@ -173,8 +168,8 @@ static GLXFBConfig select_fb_config(struct vo *vo, const int *attribs, int flags
             // a depth of 24, even if the pixels are padded to 32 bit. If the
             // depth is higher than 24, the remaining bits must be alpha.
             // Note: vinfo->bits_per_rgb appears to be useless (is always 8).
-            unsigned long mask = v->depth == 32 ?
-                (unsigned long)-1 : (1 << (unsigned long)v->depth) - 1;
+            unsigned long mask = v->depth == sizeof(unsigned long) * 8 ?
+                (unsigned long)-1 : (1UL << v->depth) - 1;
             if (mask & ~(v->red_mask | v->green_mask | v->blue_mask)) {
                 fbconfig = fbc[n];
                 break;
@@ -253,11 +248,6 @@ static int glx_init(struct MPGLContext *ctx, int flags)
         MP_WARN(vo, "Selected GLX FB config has no associated X visual\n");
     }
 
-
-    glXGetFBConfigAttrib(vo->x11->display, fbc, GLX_RED_SIZE, &ctx->depth_r);
-    glXGetFBConfigAttrib(vo->x11->display, fbc, GLX_GREEN_SIZE, &ctx->depth_g);
-    glXGetFBConfigAttrib(vo->x11->display, fbc, GLX_BLUE_SIZE, &ctx->depth_b);
-
     if (!vo_x11_create_vo_window(vo, glx_ctx->vinfo, "gl"))
         goto uninit;
 
@@ -273,6 +263,11 @@ static int glx_init(struct MPGLContext *ctx, int flags)
         ctx->gl->mpgl_caps |= MPGL_CAP_SW;
     if (!success)
         goto uninit;
+
+    glXGetFBConfigAttrib(vo->x11->display, fbc, GLX_RED_SIZE, &ctx->gl->fb_r);
+    glXGetFBConfigAttrib(vo->x11->display, fbc, GLX_GREEN_SIZE, &ctx->gl->fb_g);
+    glXGetFBConfigAttrib(vo->x11->display, fbc, GLX_BLUE_SIZE, &ctx->gl->fb_b);
+    ctx->gl->fb_premultiplied = true;
 
     return 0;
 
@@ -322,7 +317,7 @@ const struct mpgl_driver mpgl_driver_x11 = {
 };
 
 const struct mpgl_driver mpgl_driver_x11_probe = {
-    .name           = "x11",
+    .name           = "x11probe",
     .priv_size      = sizeof(struct glx_context),
     .init           = glx_init_probe,
     .reconfig       = glx_reconfig,

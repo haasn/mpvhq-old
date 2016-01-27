@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <libavformat/avformat.h>
@@ -70,20 +70,20 @@ static const char *map_audio_pcm_tag(uint32_t tag, int bits)
     }
 }
 
-void mp_set_codec_from_tag(struct sh_stream *sh)
+void mp_set_codec_from_tag(struct mp_codec_params *c)
 {
-    sh->codec = lookup_tag(sh->type, sh->codec_tag);
+    c->codec = lookup_tag(c->type, c->codec_tag);
 
-    if (sh->audio && sh->audio->bits_per_coded_sample) {
+    if (c->type == STREAM_AUDIO && c->bits_per_coded_sample) {
         const char *codec =
-            map_audio_pcm_tag(sh->codec_tag, sh->audio->bits_per_coded_sample);
+            map_audio_pcm_tag(c->codec_tag, c->bits_per_coded_sample);
         if (codec)
-            sh->codec = codec;
+            c->codec = codec;
     }
 }
 
-void mp_set_pcm_codec(struct sh_stream *sh, bool sign, bool is_float, int bits,
-                      bool is_be)
+void mp_set_pcm_codec(struct mp_codec_params *c, bool sign, bool is_float,
+                      int bits, bool is_be)
 {
     // This uses libavcodec pcm codec names, e.g. "pcm_u16le".
     char codec[64] = "pcm_";
@@ -95,7 +95,7 @@ void mp_set_pcm_codec(struct sh_stream *sh, bool sign, bool is_float, int bits,
     mp_snprintf_cat(codec, sizeof(codec), "%d", bits);
     if (bits != 8)
         mp_snprintf_cat(codec, sizeof(codec), is_be ? "be" : "le");
-    sh->codec = talloc_strdup(sh->audio, codec);
+    c->codec = talloc_strdup(c, codec);
 }
 
 static const char *const mimetype_to_codec[][2] = {

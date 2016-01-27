@@ -1,18 +1,18 @@
 /*
  * This file is part of mpv.
  *
- * mpv is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * mpv is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * mpv is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with mpv.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <stdlib.h>
@@ -20,7 +20,7 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "talloc.h"
+#include "mpv_talloc.h"
 
 #include "misc/bstr.h"
 #include "common/common.h"
@@ -217,4 +217,19 @@ struct cue_file *mp_parse_cue(struct bstr data)
     }
 
     return f;
+}
+
+int mp_check_embedded_cue(struct cue_file *f)
+{
+    char *fn0 = f->tracks[0].filename;
+    for (int n = 1; n < f->num_tracks; n++) {
+        char *fn = f->tracks[n].filename;
+        // both filenames have the same address (including NULL)
+        if (fn0 == fn)
+            continue;
+        // only one filename is NULL, or the strings don't match
+        if (!fn0 || !fn || strcmp(fn0, fn) != 0)
+            return -1;
+    }
+    return 0;
 }

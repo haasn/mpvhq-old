@@ -1,7 +1,7 @@
 Introduction
 ============
 
-mpv provides access to its internal via the following means:
+mpv provides access to its internals via the following means:
 
 - options
 - commands
@@ -19,6 +19,21 @@ Interface changes
 
 ::
 
+ --- mpv 0.16.0 ---
+    - change --audio-channels default to stereo (use --audio-channels=auto to
+      get the old default)
+    - add --audio-normalize-downmix
+    - change the default downmix behavior (--audio-normalize-downmix=yes to get
+      the old default)
+    - VO opengl custom shaders must now use "sample_pixel" as function name,
+      instead of "sample"
+    - change VO opengl scaler-resizes-only default to enabled
+    - add VO opengl "tscale-interpolates-only" suboption
+    - make "volume" and "mute" properties changeable even if no audio output is
+      active (this gives not-ideal behavior if --softvol=no is used)
+    - add "volume-max" and "mixer-active" properties
+ --- mpv 0.15.0 ---
+    - change "yadif" video filter defaults
  --- mpv 0.14.0 ---
     - vo_opengl interpolation now requires --video-sync=display-... to be set
     - change some vo_opengl defaults (including changing tscale)
